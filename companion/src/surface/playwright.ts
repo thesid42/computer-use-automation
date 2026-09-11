@@ -5,9 +5,38 @@ import { copyFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 type RefEntry = { framePath: string[]; index: number; control: ResolvedControl };
-type SessionState = { browser: Browser; context: BrowserContext; page: Page; refs: Map<string, RefEntry>; sequence: number; captureSequence: number; sink: HumanActionSink | undefined; dialogs: string[] };
+type SessionState = { browser: Browser; context: BrowserContext; page: Page; refs: Map<string, RefEntry>; sequence: number; captureSequence: number; sink: HumanActionSink | undefined; pendingSinkCalls: Set<Promise<void>>; dialogs: string[] };
 type LocatedTarget = { locator: Locator; control: ResolvedControl; count: number };
-const CONTROL_SELECTOR = 'button, a, input, select, textarea, dt, dd';
+// Tables/captions are observable output controls. Include a bounded set of
+// cells so a model can ground a filtered result without treating DOM text as
+// an opaque, unresolvable blob.
+const CONTROL_SELECTOR = 'button, a, input, select, textarea, dt, dd, table, caption, th, td';
+const MAX_OBSERVED_CONTROLS = 256;
+// Keep this browser-side script as source text. Passing a TypeScript function
+// through tsx causes named helper arrows to be rewritten with a Node-only
+// __name helper, which makes the page fail before it can emit human events.
+const HUMAN_EVENT_INIT_SCRIPT = `
+(() => {
+  const send = function(kind, details) {
+    const bridge = globalThis.__companionHumanEvent;
+    if (bridge) void bridge({ kind, details });
+  };
+  const redact = function(value) { return String(value).replace(/\\d{4,}/g, '[REDACTED]'); };
+  document.addEventListener('click', function(event) {
+    const target = event.target;
+    const element = target instanceof Element ? target.closest('button,a,input,select,textarea') : null;
+    if (element) send('click', { text: redact(element.textContent?.trim() || element.getAttribute('aria-label') || element.getAttribute('name') || '') });
+  }, true);
+  const inputEvent = function(event) {
+    const element = event.target;
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
+      send(event.type, { field: element.getAttribute('name') || element.getAttribute('id') || element.tagName, value: '[REDACTED]' });
+    }
+  };
+  document.addEventListener('input', inputEvent, true);
+  document.addEventListener('change', inputEvent, true);
+})();
+`;
 
 function stateOf(session: SessionHandle, states: Map<string, SessionState>): SessionState {
   const state = states.get(session.id);
@@ -40,8 +69,26 @@ async function controlDescription(locator: Locator, framePath: string[], frameUr
     const label = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`)?.textContent?.trim() : undefined;
     const text = html.textContent?.trim() || undefined;
     const name = html.getAttribute('aria-label') || label || text || undefined;
-    const role = html.getAttribute('role') || ({ A: 'link', BUTTON: 'button', INPUT: 'textbox', SELECT: 'combobox', TEXTAREA: 'textbox', DT: 'term', DD: 'definition' } as Record<string, string>)[html.tagName] || html.tagName.toLowerCase();
-    const relativeText = html.tagName === 'DD' ? html.previousElementSibling?.tagName === 'DT' ? html.previousElementSibling.textContent?.trim() || undefined : undefined : undefined;
+    const role = html.getAttribute('role') || ({ A: 'link', BUTTON: 'button', INPUT: 'textbox', SELECT: 'combobox', TEXTAREA: 'textbox', DT: 'term', DD: 'definition', TABLE: 'table', CAPTION: 'caption', TH: 'columnheader', TD: 'cell' } as Record<string, string>)[html.tagName] || html.tagName.toLowerCase();
+    let relativeText = html.tagName === 'DD' && html.previousElementSibling?.tagName === 'DT'
+      ? html.previousElementSibling.textContent?.trim() || undefined
+      : undefined;
+    if ((html.tagName === 'TH' || html.tagName === 'TD') && !relativeText) {
+      const row = html.closest('tr');
+      const table = html.closest('table');
+      const cellIndex = row ? Array.from(row.children).indexOf(html) : -1;
+      const rowHeaders = row ? Array.from(row.children).filter((cell) => cell.tagName === 'TH') : [];
+      const headerRow = table?.querySelector('thead tr:last-child')
+        ?? (table ? Array.from(table.querySelectorAll('tr')).find((candidate) => candidate.querySelector(':scope > th')) : undefined);
+      const headers = headerRow ? Array.from(headerRow.children).filter((cell) => cell.tagName === 'TH' || cell.tagName === 'TD') : [];
+      // Key/value tables often put a single <th> beside the amount in a row,
+      // without a thead. Associate that row header directly.
+      relativeText = rowHeaders.length === 1 && html.tagName === 'TD'
+        ? rowHeaders[0]?.textContent?.trim() || undefined
+        : rowHeaders.length === 1 && html.tagName === 'TH'
+          ? html.textContent?.trim() || undefined
+        : cellIndex >= 0 ? headers[cellIndex]?.textContent?.trim() || undefined : undefined;
+    }
     return { role, name, text, label: label || undefined, relativeText, framePath: payload.framePath, frameUrl: payload.frameUrl, ref: payload.ref };
   }, { framePath, frameUrl, ref });
   return description as ResolvedControl;
@@ -58,6 +105,14 @@ async function visibleText(page: Page): Promise<string> {
 function visibleOutcome(text: string): ActionResult | undefined {
   if (text.includes('MEMBER_NOT_FOUND')) return { status: 'business_outcome', code: 'MEMBER_NOT_FOUND' };
   if (text.includes('PERMISSION_DENIED')) return { status: 'business_outcome', code: 'PERMISSION_DENIED' };
+  if (text.includes('NO_TRANSACTIONS')) return { status: 'business_outcome', code: 'NO_TRANSACTIONS' };
+  if (text.includes('UNSUPPORTED_AS_OF_DATE')) return { status: 'business_outcome', code: 'UNSUPPORTED_AS_OF_DATE' };
+  if (text.includes('NO_LOAN')) return { status: 'business_outcome', code: 'NO_LOAN' };
+  if (text.includes('INVALID_START_DATE')) return { status: 'business_outcome', code: 'INVALID_START_DATE' };
+  if (text.includes('INVALID_END_DATE')) return { status: 'business_outcome', code: 'INVALID_END_DATE' };
+  if (text.includes('INVALID_AS_OF_DATE')) return { status: 'business_outcome', code: 'INVALID_AS_OF_DATE' };
+  if (text.includes('INVALID_DATE_RANGE')) return { status: 'business_outcome', code: 'INVALID_DATE_RANGE' };
+  if (text.includes('INVALID_DATE')) return { status: 'business_outcome', code: 'INVALID_DATE' };
   if (text.includes('TEMPORARY_LOAD_FAILURE')) return { status: 'recoverable', code: 'TEMPORARY_LOAD_FAILURE', message: 'Temporary load failure is visible' };
   if (text.includes('SUPERVISOR_VERIFICATION_REQUIRED')) return { status: 'needs_human', code: 'SUPERVISOR_VERIFICATION_REQUIRED', reason: 'Supervisor verification is required' };
   return undefined;
@@ -72,38 +127,29 @@ export class PlaywrightSurfaceAdapter implements SurfaceAdapter {
     const browser = await chromium.launch({ headless: target.headless ?? false });
     const context = await browser.newContext();
     const sessionId = `pw-${crypto.randomUUID()}`;
-    const state: SessionState = { browser, context, page: undefined as unknown as Page, refs: new Map(), sequence: 0, captureSequence: 0, sink: undefined, dialogs: [] };
+    const state: SessionState = { browser, context, page: undefined as unknown as Page, refs: new Map(), sequence: 0, captureSequence: 0, sink: undefined, pendingSinkCalls: new Set(), dialogs: [] };
     await context.exposeFunction('__companionHumanEvent', async (event: { kind?: string; details?: Record<string, unknown> }) => {
-      if (state.sink) {
+      const pending = Promise.resolve().then(async () => {
+        if (!state.sink) return;
         const action: { kind: string; details?: Record<string, unknown> } = { kind: event.kind ?? 'unknown' };
         if (event.details) action.details = event.details;
         await state.sink(action);
-      }
+      }).catch(() => undefined);
+      state.pendingSinkCalls.add(pending);
+      await pending;
+      state.pendingSinkCalls.delete(pending);
     });
-    await context.addInitScript(() => {
-      const send = (kind: string, details: Record<string, unknown> = {}) => {
-        const bridge = (globalThis as unknown as { __companionHumanEvent?: (event: unknown) => void }).__companionHumanEvent;
-        if (bridge) void bridge({ kind, details });
-      };
-      const redact = (value: string) => value.replace(/\d{4,}/g, '[REDACTED]');
-      document.addEventListener('click', (event) => {
-        const element = (event.target as HTMLElement | null)?.closest('button,a,input,select,textarea');
-        if (element) send('click', { text: redact(element.textContent?.trim() || element.getAttribute('aria-label') || element.getAttribute('name') || '') });
-      }, true);
-      const inputEvent = (event: Event) => {
-        const element = event.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
-        if (element) send(event.type, { field: element.getAttribute('name') || element.getAttribute('id') || element.tagName, value: '[REDACTED]' });
-      };
-      document.addEventListener('input', inputEvent, true);
-      document.addEventListener('change', inputEvent, true);
-    });
+    await context.addInitScript(HUMAN_EVENT_INIT_SCRIPT);
     const page = await context.newPage();
     state.page = page;
     page.on('dialog', async (dialog) => {
       state.dialogs.push(`${dialog.type()}:${dialog.message()}`);
       try { await dialog.dismiss(); } catch { /* the page may have closed while the dialog was handled */ }
     });
-    page.on('framenavigated', (frame) => { if (state.sink) void state.sink({ kind: 'navigation', details: { url: frame.url() } }); });
+    page.on('framenavigated', (frame) => {
+      if (!state.sink) return;
+      try { void Promise.resolve(state.sink({ kind: 'navigation', details: { url: frame.url() } })).catch(() => undefined); } catch { /* page may be closing */ }
+    });
     this.sessions.set(sessionId, state);
     try {
       await page.goto(target.url, { waitUntil: 'domcontentloaded' });
@@ -125,14 +171,53 @@ export class PlaywrightSurfaceAdapter implements SurfaceAdapter {
       const framePath = await framePathOf(frame);
       let locators: Locator;
       try { locators = frame.locator(CONTROL_SELECTOR); } catch { continue; }
-      const count = await locators.count();
-      for (let index = 0; index < count; index += 1) {
-        const locator = locators.nth(index);
-        const ref = `control-${state.sequence}-${page.frames().indexOf(frame)}-${index}`;
-        const control = await controlDescription(locator, framePath, frame.url(), ref);
-        state.refs.set(ref, { framePath, index, control });
-        controls.push(control as SurfaceControl);
+      const frameIndex = page.frames().indexOf(frame);
+      try {
+        // Read all descriptions in one browser evaluation. A count()+nth()
+        // loop can retain a stale locator while a frame commits navigation,
+        // making every subsequent nth evaluation wait for its timeout.
+        const descriptions = await locators.evaluateAll((elements, payload: { framePath: string[]; frameUrl: string; prefix: string }) => elements.map((element, index) => {
+          const html = element as HTMLElement;
+          // A result cell that wraps a link/button is a layout container, not
+          // an actionable control. Omitting it prevents a ref based planner
+          // from clicking the cell and leaving the real link untouched.
+          if ((html.tagName === 'TD' || html.tagName === 'TH') && html.querySelector('a,button,input,select,textarea')) return null;
+          const id = html.getAttribute('id');
+          const label = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`)?.textContent?.trim() : undefined;
+          const text = html.textContent?.trim() || undefined;
+          const name = html.getAttribute('aria-label') || label || text || undefined;
+          const role = html.getAttribute('role') || ({ A: 'link', BUTTON: 'button', INPUT: 'textbox', SELECT: 'combobox', TEXTAREA: 'textbox', DT: 'term', DD: 'definition', TABLE: 'table', CAPTION: 'caption', TH: 'columnheader', TD: 'cell' } as Record<string, string>)[html.tagName] || html.tagName.toLowerCase();
+          let relativeText = html.tagName === 'DD' && html.previousElementSibling?.tagName === 'DT'
+            ? html.previousElementSibling.textContent?.trim() || undefined
+            : undefined;
+          if ((html.tagName === 'TH' || html.tagName === 'TD') && !relativeText) {
+            const row = html.closest('tr');
+            const table = html.closest('table');
+            const cellIndex = row ? Array.from(row.children).indexOf(html) : -1;
+            const rowHeaders = row ? Array.from(row.children).filter((cell) => cell.tagName === 'TH') : [];
+            const headerRow = table?.querySelector('thead tr:last-child')
+              ?? (table ? Array.from(table.querySelectorAll('tr')).find((candidate) => candidate.querySelector(':scope > th')) : undefined);
+            const headers = headerRow ? Array.from(headerRow.children).filter((cell) => cell.tagName === 'TH' || cell.tagName === 'TD') : [];
+            relativeText = rowHeaders.length === 1 && html.tagName === 'TD'
+              ? rowHeaders[0]?.textContent?.trim() || undefined
+              : rowHeaders.length === 1 && html.tagName === 'TH'
+                ? html.textContent?.trim() || undefined
+              : cellIndex >= 0 ? headers[cellIndex]?.textContent?.trim() || undefined : undefined;
+          }
+          return { role, name, text, label: label || undefined, relativeText, framePath: payload.framePath, frameUrl: payload.frameUrl, ref: `${payload.prefix}-${index}` };
+        }), { framePath, frameUrl: frame.url(), prefix: `control-${state.sequence}-${frameIndex}` });
+        for (let index = 0; index < descriptions.length && controls.length < MAX_OBSERVED_CONTROLS; index += 1) {
+          const control = descriptions[index] as ResolvedControl | null;
+          if (!control) continue;
+          const ref = `control-${state.sequence}-${frameIndex}-${index}`;
+          state.refs.set(ref, { framePath, index, control });
+          controls.push(control as SurfaceControl);
+        }
+      } catch {
+        // A frame may commit navigation during this single evaluation. Keep
+        // the other frames and retry on the next observation.
       }
+      if (controls.length >= MAX_OBSERVED_CONTROLS) break;
     }
     const text = await visibleText(page);
     const screenshot = `data:image/png;base64,${(await page.screenshot({ type: 'png' })).toString('base64')}`;
@@ -164,6 +249,7 @@ export class PlaywrightSurfaceAdapter implements SurfaceAdapter {
         const relativeText = strategy.relativeText;
         if (relativeText !== undefined) {
           candidateFactories.push((frame) => frame.locator('dt').filter({ hasText: relativeText }).locator('xpath=following-sibling::dd[1]'));
+          candidateFactories.push((frame) => frame.locator('tr').filter({ has: frame.locator('th').filter({ hasText: relativeText }) }).locator('td').first());
         } else {
           if (role !== undefined && name !== undefined) candidateFactories.push((frame) => frame.getByRole(role as never, { name, exact: true }));
           if (label !== undefined) candidateFactories.push((frame) => frame.getByLabel(label));
@@ -245,7 +331,31 @@ export class PlaywrightSurfaceAdapter implements SurfaceAdapter {
     const located = await this.locatorFor(state.page, spec.target);
     if (!located) throw new Error('output_target_missing');
     if (located.count !== 1) throw new Error('output_target_ambiguous');
-    const text = (await located.locator.evaluate((element) => (element.nextElementSibling?.textContent || element.textContent || '').trim())).trim();
+    // Text/table targets own their result text; definition-list money targets
+    // usually point at the label and keep the amount in the next <dd>. Avoid
+    // reading an unrelated footer or neighboring table when extracting text.
+    const text = (await located.locator.evaluate((element, parseAs) => {
+      const own = (element.textContent || '').trim();
+      const table = element.tagName === 'TABLE' ? element : element.closest('table');
+      let renderedTable = '';
+      if (table) {
+        const caption = (table.querySelector('caption') as HTMLElement | null)?.innerText?.trim() || '';
+        const rows = Array.from(table.querySelectorAll('tr')).map((row) => {
+          const cells = Array.from(row.children).filter((cell) => cell.tagName === 'TH' || cell.tagName === 'TD') as HTMLElement[];
+          return cells.map((cell) => cell.innerText.trim()).filter(Boolean).join(' | ');
+        }).filter(Boolean);
+        renderedTable = [caption, ...rows].filter(Boolean).join('\n');
+      }
+      if (parseAs !== 'money') {
+        // A caption or table target returns rendered rows/cells with
+        // delimiters, preserving a useful filtered transaction result.
+        if (table && (element.tagName === 'TABLE' || element.tagName === 'CAPTION')) return renderedTable;
+        return (element as HTMLElement).innerText?.trim() || own;
+      }
+      const candidate = table && (element.tagName === 'TABLE' || element.tagName === 'CAPTION') ? renderedTable : own;
+      if (/[-+]?\d[\d,]*(?:\.\d+)?/.test(candidate)) return candidate;
+      return (element.nextElementSibling?.textContent || candidate).trim();
+    }, spec.parseAs)).trim();
     if (spec.parseAs !== 'money') return text;
     const match = text.match(/[-+]?\d[\d,]*(?:\.\d+)?/);
     if (!match) throw new Error('output_parse_failure');
@@ -268,6 +378,18 @@ export class PlaywrightSurfaceAdapter implements SurfaceAdapter {
   async bringToHuman(session: SessionHandle): Promise<void> { await stateOf(session, this.sessions).page.bringToFront(); }
 
   async setHumanActionSink(session: SessionHandle, sink: HumanActionSink | undefined): Promise<void> { stateOf(session, this.sessions).sink = sink; }
+
+  async flushHumanActionEvents(session: SessionHandle): Promise<void> {
+    const state = stateOf(session, this.sessions);
+    // The page bridge is deliberately fire-and-forget so it cannot block a
+    // human click/navigation. Give queued RPCs a bounded drain window before
+    // the server releases the sink and resumes automation.
+    for (let round = 0; round < 5; round += 1) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 20));
+      const pending = [...state.pendingSinkCalls];
+      if (pending.length) await Promise.allSettled(pending);
+    }
+  }
 
   async close(session: SessionHandle): Promise<void> {
     const state = this.sessions.get(session.id);

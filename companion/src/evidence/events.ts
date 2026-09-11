@@ -24,7 +24,7 @@ function shouldRedact(key: string | undefined, value: string): boolean {
 export function redact(value: unknown, key?: string): unknown {
   if (typeof value === 'string') {
     if (shouldRedact(key, value)) return '[REDACTED]';
-    if (key && /^(id|createdAt|timestamp|runId|sessionId|interventionId|capabilityId|version|schemaVersion|stepId|modelId|output|kind|code|status|mode)$/i.test(key)) return value;
+    if (key && /^(id|createdAt|timestamp|runId|sessionId|interventionId|capabilityId|workflowId|version|schemaVersion|stepId|modelId|output|kind|code|status|mode|beforeEvidence|afterEvidence|evidenceRef)$/i.test(key)) return value;
     if (key === 'frameUrl') return value.replace(/\/\d{4,}(?=\/|$)/g, '/[REDACTED]');
     if (key === 'path' || key === 'url' || key === 'evidence') return value;
     return value.replace(/\b\d{4,}\b/g, '[REDACTED]');

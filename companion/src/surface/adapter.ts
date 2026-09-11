@@ -38,6 +38,8 @@ export interface SurfaceAdapter {
   bringToHuman(session: SessionHandle): Promise<void>;
   close(session: SessionHandle): Promise<void>;
   setHumanActionSink?(session: SessionHandle, sink: HumanActionSink | undefined): Promise<void>;
+  /** Drain browser-to-host human events queued by a fire-and-forget page bridge. */
+  flushHumanActionEvents?(session: SessionHandle): Promise<void>;
 }
 
 export function inputValue(value: string | { fromInput: string }, inputs: Record<string, string>): string {
@@ -51,6 +53,14 @@ function outcomeFromSnapshot(snapshot: SurfaceSnapshot): ActionResult | undefine
   const text = snapshot.visibleText;
   if (text.includes('MEMBER_NOT_FOUND')) return { status: 'business_outcome', code: 'MEMBER_NOT_FOUND' };
   if (text.includes('PERMISSION_DENIED')) return { status: 'business_outcome', code: 'PERMISSION_DENIED' };
+  if (text.includes('NO_TRANSACTIONS')) return { status: 'business_outcome', code: 'NO_TRANSACTIONS' };
+  if (text.includes('UNSUPPORTED_AS_OF_DATE')) return { status: 'business_outcome', code: 'UNSUPPORTED_AS_OF_DATE' };
+  if (text.includes('NO_LOAN')) return { status: 'business_outcome', code: 'NO_LOAN' };
+  if (text.includes('INVALID_START_DATE')) return { status: 'business_outcome', code: 'INVALID_START_DATE' };
+  if (text.includes('INVALID_END_DATE')) return { status: 'business_outcome', code: 'INVALID_END_DATE' };
+  if (text.includes('INVALID_AS_OF_DATE')) return { status: 'business_outcome', code: 'INVALID_AS_OF_DATE' };
+  if (text.includes('INVALID_DATE_RANGE')) return { status: 'business_outcome', code: 'INVALID_DATE_RANGE' };
+  if (text.includes('INVALID_DATE')) return { status: 'business_outcome', code: 'INVALID_DATE' };
   if (text.includes('TEMPORARY_LOAD_FAILURE')) return { status: 'recoverable', code: 'TEMPORARY_LOAD_FAILURE', message: 'Temporary load failure is visible' };
   if (text.includes('SUPERVISOR_VERIFICATION_REQUIRED')) return { status: 'needs_human', code: 'SUPERVISOR_VERIFICATION_REQUIRED', reason: 'Supervisor verification is required' };
   return undefined;
@@ -81,9 +91,13 @@ export class ReplayRunner {
 
   async run(rawArtifact: CapabilityArtifact, target: TargetProfile, inputs: Record<string, string>, existingSession?: SessionHandle): Promise<RunResult> {
     const artifact = capabilitySchema.parse(rawArtifact);
+    const declaredInputs = new Set(artifact.inputs.map((input) => input.name));
+    for (const name of Object.keys(inputs)) {
+      if (!declaredInputs.has(name)) return { status: 'failed', error: { code: 'INVALID_INVOCATION', message: `Unknown input: ${name}` } };
+    }
     for (const input of artifact.inputs) {
       const value = inputs[input.name];
-      if (value === undefined || value.length < input.validation.minLength || value.length > input.validation.maxLength) {
+      if (typeof value !== 'string' || value.length < input.validation.minLength || value.length > input.validation.maxLength || ((input.validation.format === 'iso_date' || input.sensitivity === 'date') && !isIsoDate(value))) {
         return { status: 'failed', error: { code: 'INVALID_INVOCATION', message: `Invalid input: ${input.name}` } };
       }
     }
@@ -138,16 +152,26 @@ export class ReplayRunner {
         if (visibleOutcome?.status === 'recoverable') {
           let recovery: ActionResult = visibleOutcome;
           for (let attempt = 0; attempt <= artifact.waits.retries; attempt += 1) {
-            const recoveryAction: ArtifactAction = {
-              kind: 'wait',
-              id: `recover-${action.id}`,
-              condition: 'text:TEMPORARY_LOAD_FAILURE',
-              timeoutMs: artifact.waits.defaultTimeoutMs
-            };
-            const recoveryDecision = this.policy.check({ kind: 'wait', risk: 'READ_ONLY' }, new URL(snapshot.url), 'automation');
+            // Temporary errors in the legacy surface expose a visible Retry
+            // Search button. Recover through that browser control so replay
+            // remains UI-only and deterministic; retain a bounded wait when a
+            // compatible surface has no retry affordance.
+            const retryTarget: TargetSpec = { strategies: [{ role: 'button', name: 'Retry Search' }, { text: 'Retry Search' }] };
+            const retryResolution = await this.surface.resolve(session, retryTarget);
+            const recoveryAction: ArtifactAction = retryResolution.count === 1
+              ? { kind: 'click', id: `recover-${action.id}`, target: retryTarget, risk: 'READ_ONLY' }
+              : { kind: 'wait', id: `recover-${action.id}`, condition: 'text:TEMPORARY_LOAD_FAILURE', timeoutMs: artifact.waits.defaultTimeoutMs };
+            const recoveryDecision = this.policy.check({ kind: recoveryAction.kind, risk: 'READ_ONLY', ...(retryResolution.resolvedControl ? { target: retryResolution.resolvedControl } : {}) }, new URL(retryResolution.resolvedControl?.frameUrl ?? snapshot.url), 'automation', retryResolution.resolvedControl);
             if (!recoveryDecision.allowed) return await this.failureResult(recorder, session, 'POLICY_VIOLATION', recoveryDecision.reason, recoveryAction.id, snapshot.stateFingerprint, recoveryAction);
             recovery = await this.surface.act(session, recoveryAction);
             const afterRecovery = await this.safeObserve(session, snapshot);
+            const observedRecoveryOutcome = outcomeFromSnapshot(afterRecovery);
+            // A click can return while the browser is still committing its
+            // navigation, so act() may report the old TEMPORARY marker even
+            // though the fresh observation is already the recovered page.
+            // Trust the fresh visible state for this bounded recovery step.
+            if (recovery.status === 'recoverable' && !observedRecoveryOutcome) recovery = { status: 'succeeded' };
+            else if (recovery.status === 'recoverable' && observedRecoveryOutcome?.status === 'business_outcome') recovery = observedRecoveryOutcome;
             const recoveryEvidence = await this.captureEvidence(session);
             recorder.record({ runId: session.id, stepId: recoveryAction.id, kind: 'action', action: recoveryAction, outcome: recovery.status, beforeFingerprint: snapshot.stateFingerprint, afterFingerprint: afterRecovery.stateFingerprint, evidence: recoveryEvidence });
             if (recovery.status !== 'recoverable') break;
@@ -259,6 +283,12 @@ export class ReplayRunner {
     recorder.record({ runId: session.id, stepId: stepId ?? 'run', kind: action ? 'action' : 'result', ...(action ? { action, ...(resolvedControl ? { resolvedControl } : {}) } : {}), outcome: `failed:${code}`, evidence, ...(observedState ? { afterFingerprint: observedState } : {}), details: { code, message, ...(expectedState ? { expectedState } : {}) } });
     return { status: 'failed', error: { code, message, ...(stepId ? { stepId } : {}), ...(observedState ? { observedState } : {}), ...(expectedState ? { expectedState } : {}), ...(evidence[0] ? { evidenceRef: evidence[0] } : {}) } };
   }
+}
+
+function isIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 function conditionVisible(visibleText: string, condition: string): boolean {

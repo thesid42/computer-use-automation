@@ -35,8 +35,15 @@ describe('same-session intervention API', () => {
       surface: new ScriptedDemoSurfaceAdapter(),
       discoveryModel: new ScriptedDiscoveryModel([
         { kind: 'requestHuman', id: 'verify', reason: 'Supervisor verification required' },
+        { kind: 'fill', id: 'enter-member-id', target: { strategies: [{ label: 'Member ID' }] }, value: '12345', risk: 'READ_ONLY' },
         { kind: 'click', id: 'open-member-search', target: { strategies: [{ role: 'link', name: 'Member Search' }] }, risk: 'READ_ONLY' },
-        { kind: 'finish', id: 'done', outputs: [], checkpoint: 'Member Search' }
+        { kind: 'click', id: 'submit-member-search', target: { strategies: [{ role: 'button', name: 'Search' }] }, risk: 'READ_ONLY' },
+        { kind: 'click', id: 'open-member-result', target: { strategies: [{ text: 'Member Summary' }] }, risk: 'READ_ONLY' },
+        { kind: 'click', id: 'open-accounts', target: { strategies: [{ role: 'link', name: 'Accounts' }] }, risk: 'READ_ONLY' },
+        { kind: 'click', id: 'open-savings-account', target: { strategies: [{ text: 'Savings Account' }] }, risk: 'READ_ONLY' },
+        { kind: 'click', id: 'open-balance-details', target: { strategies: [{ role: 'button', name: 'Balance Details' }] }, risk: 'READ_ONLY' },
+        { kind: 'extract', id: 'extract-savings-balance', target: { strategies: [{ text: 'Current Balance' }] }, output: 'current_savings_balance', parseAs: 'money' },
+        { kind: 'finish', id: 'finish', outputs: ['current_savings_balance'], checkpoint: 'Current Balance visible' }
       ])
     });
     const created = await app.inject({ method: 'POST', url: '/api/tasks', payload: { goal: 'Look up member 12345 and tell me their savings balance.' } });

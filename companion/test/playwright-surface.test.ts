@@ -104,9 +104,11 @@ describe('Playwright surface iframe integration', () => {
     const surface = new PlaywrightSurfaceAdapter();
     const session = await surface.start({ id: 'demo', applicationFamily: 'legacy-member-servicing', url: legacyUrl, headless: true });
     const events: Array<{ kind: string; details?: Record<string, unknown> }> = [];
+    const pageErrors: string[] = [];
     try {
       await surface.setHumanActionSink?.(session, (event) => { events.push(event); });
       const page = session.page as import('playwright').Page;
+      page.on('pageerror', (error) => { pageErrors.push(error.message); });
       const frame = page.frames().find((candidate) => candidate !== page.mainFrame());
       await frame?.getByLabel('Member ID').fill('12345');
       await frame?.getByRole('button', { name: 'Search' }).click();
@@ -114,6 +116,7 @@ describe('Playwright surface iframe integration', () => {
       expect(events.some((event) => event.kind === 'input' && event.details?.value === '[REDACTED]')).toBe(true);
       expect(events.some((event) => event.kind === 'click')).toBe(true);
       expect(events.some((event) => event.kind === 'navigation' && String(event.details?.url).includes('/servicing/member-search'))).toBe(true);
+      expect(pageErrors).toEqual([]);
     } finally {
       await surface.close(session);
     }

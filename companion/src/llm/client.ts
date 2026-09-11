@@ -1,6 +1,6 @@
 import type { DiscoveryModel } from '../discovery/runner.js';
 import type { ProvisionalIntent } from '../goal/interpret.js';
-import type { RunEvent } from '../evidence/events.js';
+import { redact, type RunEvent } from '../evidence/events.js';
 import type { SurfaceSnapshot } from '../surface/adapter.js';
 
 export type LLMConfig = {
@@ -17,6 +17,29 @@ export type LLMConfig = {
 };
 
 export const DEFAULT_LLM_MODEL = 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning';
+
+function compactPriorActions(priorEvents: RunEvent[]): Array<Record<string, unknown>> {
+  return priorEvents
+    .filter((event) => event.kind === 'action' && event.outcome === 'succeeded')
+    .slice(-12)
+    .map((event) => {
+      const action = event.action && typeof event.action === 'object' ? event.action as Record<string, unknown> : {};
+      const control = event.resolvedControl;
+      const safeControl = control ? Object.fromEntries(
+        (['role', 'name', 'label', 'relativeText'] as const)
+          .filter((key) => control[key] !== undefined)
+          .map((key) => [key, control[key]])
+      ) : undefined;
+      const summary: Record<string, unknown> = {
+        stepId: event.stepId,
+        kind: typeof action.kind === 'string' ? action.kind : event.stepId,
+        ...(safeControl && Object.keys(safeControl).length ? { control: safeControl } : {}),
+        ...(typeof event.details?.output === 'string' ? { output: event.details.output } : {}),
+        ...(typeof action.checkpoint === 'string' ? { checkpoint: action.checkpoint } : {})
+      };
+      return redact(summary) as Record<string, unknown>;
+    });
+}
 export const DEFAULT_LLM_TIMEOUT_MS = 60_000;
 export const MIN_LLM_TIMEOUT_MS = 5_000;
 export const MAX_LLM_TIMEOUT_MS = 120_000;
@@ -161,14 +184,21 @@ export class OpenAICompatibleModel implements DiscoveryModel {
 
   private async requestAction(snapshot: SurfaceSnapshot, intent: ProvisionalIntent, priorEvents: RunEvent[], repair?: { validationError: string; stepId: string; proposal: unknown; attempt: number }): Promise<unknown> {
     if (!this.config.apiKey) throw new Error('LLM_API_KEY is required for live discovery');
-    const text = JSON.stringify({ intent, snapshot: { url: snapshot.url, title: snapshot.title, framePath: snapshot.framePath, controls: snapshot.controls, visibleText: snapshot.visibleText, dialogs: snapshot.dialogs, stateFingerprint: snapshot.stateFingerprint }, priorEvents: priorEvents.map((event) => ({ stepId: event.stepId, outcome: event.outcome })) });
+    const text = JSON.stringify({ intent, snapshot: { url: snapshot.url, title: snapshot.title, framePath: snapshot.framePath, controls: snapshot.controls, visibleText: snapshot.visibleText, dialogs: snapshot.dialogs, stateFingerprint: snapshot.stateFingerprint }, priorEvents: compactPriorActions(priorEvents) });
     const timeoutMs = this.metadata.timeoutMs;
     const responseFormat = this.config.responseFormat ?? 'json_schema';
     const actionMode = this.metadata.actionMode;
-    const extractedBalance = priorEvents.some((event) => event.outcome === 'succeeded' && event.details?.output === 'current_savings_balance');
-    const finishHint = extractedBalance && /current balance|balance details/i.test(snapshot.visibleText)
-      ? 'The requested current_savings_balance was already extracted and the balance checkpoint is visible. Return exactly {"kind":"finish","id":"finish-balance","outputs":["current_savings_balance"],"checkpoint":"Current Balance visible"}. '
+    const requestedOutputs = intent.requestedOutputs.map((output) => ({ name: output.proposedName, type: output.type, ...(output.currency ? { currency: output.currency } : {}) }));
+    const requestedInputNames = intent.entities.map((entity) => entity.proposedName);
+    const fallbackOutput = intent.objective === 'lookup_member_savings_balance' ? { name: 'current_savings_balance', type: 'money', currency: 'USD' } : undefined;
+    const outputContract = requestedOutputs.length ? requestedOutputs : (fallbackOutput ? [fallbackOutput] : []);
+    const extractedRequestedOutput = priorEvents.find((event) => event.outcome === 'succeeded' && typeof event.details?.output === 'string' && outputContract.some((output) => output.name === event.details?.output));
+    const finishHint = extractedRequestedOutput && outputContract.length > 0
+      ? intent.objective === 'lookup_member_savings_balance' && outputContract.length === 1 && outputContract[0]?.name === 'current_savings_balance'
+        ? 'A requested output (current_savings_balance) was already extracted. If the visible checkpoint is now satisfied, return exactly {"kind":"finish","id":"finish-balance","outputs":["current_savings_balance"],"checkpoint":"Current Balance visible"}. '
+        : `A requested output (${String(extractedRequestedOutput.details?.output)}) was already extracted. If the visible checkpoint is now satisfied, return exactly a finish action with outputs ${JSON.stringify(outputContract.map((output) => output.name))} and the checkpoint text visible in the current snapshot. `
       : '';
+    const intentContract = `Use only these grounded input references when values come from the request: ${JSON.stringify(requestedInputNames)}. Requested outputs are exactly: ${JSON.stringify(outputContract)}. For an extracted output, use one of those exact names and its declared parse type.`;
     const repairInstructions = repair ? `Repair attempt ${repair.attempt} of 2. Validation failed with: ${repair.validationError}. The malformed proposal was: ${JSON.stringify(repair.proposal)}. Current controls are exactly: ${JSON.stringify(snapshot.controls.map(({ ref, role, name, text, label, framePath }) => ({ ref, role, name, text, label, framePath })))}. For click, fill, selectOption, or extract, copy exactly one current control ref into target.strategies[0].ref. Do not invent a ref or use an empty target. Fill requires target and value; selectOption requires target and option; extract requires target, output, and parseAs; wait requires condition and timeoutMs; finish requires outputs and checkpoint; requestHuman requires reason; clickPoint requires numeric x and y. ${finishHint}Do not explain the correction, omit fields, infer a selection, or return multiple actions. ` : '';
     const response = await this.send(`${this.config.baseUrl.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
@@ -179,12 +209,12 @@ export class OpenAICompatibleModel implements DiscoveryModel {
         temperature: this.config.temperature ?? 0,
         ...(actionMode === 'tool' ? { tools: [actionTool], tool_choice: { type: 'function', function: { name: 'submit_computer_action' } } } : responseFormat === 'json_schema' ? { response_format: { type: 'json_schema', json_schema: { name: 'nano_omni_browser_action', strict: true, schema: actionJsonSchema } } } : responseFormat === 'json_object' ? { response_format: { type: 'json_object' } } : {}),
         messages: [
-          { role: 'system', content: `${repairInstructions}Return exactly one JSON action object matching the supplied schema. This is a one-action contract: choose exactly one click, fill, selectOption, wait, extract, finish, requestHuman, or clickPoint. Do not return prose, markdown, chain-of-thought, or multiple actions. For any control action, target MUST be {"strategies":[{"ref":"control-..."}]} using one temporary ref from the current snapshot; never invent a selector or persistent locator. Values must be explicit: fill requires both target and value; selectOption requires both target and option. If the value comes from the grounded intent, use {"fromInput":"member_id"}. For extract, use the requested output name current_savings_balance and parseAs money. Use these exact shapes as examples (replace refs only with refs visible in this snapshot):
+          { role: 'system', content: `${repairInstructions}Continue from the current snapshot and the recent successful action history. Do not repeat a successful action, undo successful progress, or navigate to unrelated global sections. Choose the single visible control that advances the requested read-only goal; use only the temporary refs in the current snapshot. Return exactly one JSON action object matching the supplied schema. This is a one-action contract: choose exactly one click, fill, selectOption, wait, extract, finish, requestHuman, or clickPoint. Do not return prose, markdown, chain-of-thought, or multiple actions. For any control action, target MUST be {"strategies":[{"ref":"control-..."}]} using one temporary ref from the current snapshot; never invent a selector or persistent locator. Values must be explicit: fill requires both target and value; selectOption requires both target and option. If the value comes from the grounded intent, use a {"fromInput":"..."} reference named in the intent contract. ${intentContract} Use these exact shapes as examples (replace refs only with refs visible in this snapshot):
 {"kind":"click","id":"click-search","target":{"strategies":[{"ref":"control-1-2"}]}}
 {"kind":"fill","id":"fill-member-id","target":{"strategies":[{"ref":"control-1-1"}]},"value":{"fromInput":"member_id"}}
 {"kind":"selectOption","id":"select-account","target":{"strategies":[{"ref":"control-1-3"}]},"option":"Savings"}
 {"kind":"wait","id":"wait-results","condition":"text:Member Summary","timeoutMs":5000}
-{"kind":"extract","id":"extract-balance","target":{"strategies":[{"ref":"control-1-4"}]},"output":"current_savings_balance","parseAs":"money"}
+{"kind":"extract","id":"extract-output","target":{"strategies":[{"ref":"control-1-4"}]},"output":"<requested output name>","parseAs":"<requested output type>"}
 {"kind":"finish","id":"finish-balance","outputs":["current_savings_balance"],"checkpoint":"Balance Details"}
 {"kind":"requestHuman","id":"request-verification","reason":"Supervisor verification is required"}
 {"kind":"clickPoint","id":"click-menu","x":120,"y":80}

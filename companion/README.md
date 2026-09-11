@@ -1,74 +1,133 @@
 # Automation Companion
 
-Standalone strict-TypeScript web companion for one configured, browser-visible back-office workflow. It discovers a member savings-balance lookup once, compiles a validated capability artifact, and deterministically replays it without an LLM.
+Standalone strict-TypeScript web companion for a configured browser-visible back-office target. It provides a local workflow library, natural-language discovery, deterministic replay, redacted run history, policy enforcement, and same-session human handoff.
+
+The current target adapter supports three synthetic read-only workflow families:
+
+1. Member savings balance lookup.
+2. Savings transaction history search with start_date and end_date.
+3. Loan payoff quote with as_of_date.
+
+The library can store compatible workflows beyond these three records, but this MVP does not claim arbitrary task discovery or target coverage.
+
+The expanded transaction and loan flows are verified by scripted browser tests; fresh Nano provider discovery is currently unreliable (see the [acceptance checklist](../docs/MVP-ACCEPTANCE.md) for the recorded attempts).
 
 ## Run
 
-```bash
-cd companion
+From this directory:
+
+~~~bash
 npm install
+npx playwright install chromium
 npm run companion
-```
+~~~
 
-Open `http://127.0.0.1:3000`. The target is configured by `TARGET_URL`; it is never imported from `legacy-demo`.
+Open http://127.0.0.1:3000. The default target is http://127.0.0.1:3001 and can be changed with TARGET_URL. From the repository root, the equivalent commands are:
 
-For an offline, deterministic demo (no API key, browser, or live model):
+~~~bash
+npm run install:all
+npm exec --prefix companion playwright install chromium
+npm run companion
+~~~
 
-```bash
-OFFLINE_DEMO=1 npm run companion
-```
+The target itself is independent; start it in another terminal with npm run legacy from the repository root or npm run start from legacy-demo/.
 
-On Windows Git Bash, the same command works. `TARGET_URL`, `PORT`, and `HOST` are also supported.
+The companion imports dotenv configuration automatically from this package directory. Copy the ignored environment template before the first live run:
+
+~~~powershell
+if (!(Test-Path .env)) { Copy-Item .env.example .env }
+~~~
+
+On macOS/Linux:
+
+~~~bash
+test -f .env || cp .env.example .env
+~~~
+
+Edit the copied file and add the user-provided key; the checked-in example contains no key. The same companion/.env file is used when the process is started through the repository-root script.
 
 ## Live discovery configuration
 
-The companion uses one OpenAI-compatible `/chat/completions` adapter. The packaged acceptance evidence used OpenRouter; set provider values explicitly before starting a live run:
+The companion uses one OpenAI-compatible /chat/completions adapter. Set provider values before a live discovery:
 
-```text
+~~~dotenv
 LLM_BASE_URL=https://openrouter.ai/api/v1
-LLM_API_KEY=<user-provided-key>
+LLM_API_KEY=replace-with-your-provider-key
 LLM_MODEL=nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
 LLM_ACTION_MODE=json
 LLM_TIMEOUT_MS=60000
-```
+DISCOVERY_MAX_ELAPSED_MS=300000
+TARGET_URL=http://127.0.0.1:3001
+~~~
 
-`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `LLM_ACTION_MODE`, and `LLM_TIMEOUT_MS` are read only from the environment. `LLM_ACTION_MODE=tool` enables strict function calling; JSON mode remains the default. The API key is sent in the authorization header and is not placed in prompts, artifacts, or evidence. Provider timeouts are bounded to 5–120 seconds with a 60-second default. No live-model evidence is created by tests or by offline mode.
+The default endpoint is NVIDIA NIM when LLM_BASE_URL is omitted; NVIDIA_API_KEY is accepted for that default endpoint. LLM_API_KEY is preferred. Provider timeouts are bounded to 5–120 seconds. Discovery is bounded to 300 seconds by default; DISCOVERY_MAX_ELAPSED_MS may set a value from 30 to 600 seconds. The key is sent in the authorization header only and is never placed in prompts, workflow metadata, artifacts, evidence, or logs. Tests and offline mode never create live-model evidence.
 
-## Development
+## Offline demonstration
 
-```bash
-npm test
-npm run typecheck
-npm run build
-```
+For a scripted local run with no API key, live model, or target browser:
 
-## Saved-artifact replay
+~~~bash
+OFFLINE_DEMO=1 npm run companion
+~~~
 
-Replay a validated capability artifact directly against a configured target without an LLM or API key:
+In PowerShell:
 
-```bash
-npm run replay -- --artifact ./runtime/offline/artifacts/member.lookup-savings-balance.json --input member_id=12345 --target http://127.0.0.1:3001 --headless
-```
+~~~powershell
+$env:OFFLINE_DEMO='1'
+npm run companion
+~~~
 
-The command prints one JSON result and exits nonzero for an invalid artifact, browser failure, policy failure, or other hard replay failure. It is a local developer/evaluator command, not an external capability catalog.
+Offline artifacts, workflow metadata, and run evidence are namespaced separately from live runtime data.
 
-Tests use dependency injection: scripted models and an in-memory surface cover interpretation, matching, schema validation, policy, evidence redaction, discovery, replay, and handoff without credentials. A replay run records `llmCalls: 0` in the run response and result event.
+## Demo goals and target fixtures
 
-Live-provider status (2026-09-10): the OpenRouter Nano Omni run completed discovery in 16 model calls and produced the typed balance `$1,250.42`; replay returned the same output with `llmCalls: 0`, and the unknown-member replay returned `MEMBER_NOT_FOUND` with `llmCalls: 0`. The companion fails closed on incomplete actions, limits repairs to two attempts per step, and preserves sanitized evidence in [the repository package](../evidence/README.md). Earlier failed provider attempts remain diagnostic-only under `tmp/`.
+Use these goals in the New automation dialog:
+
+~~~text
+Look up member 12345 and tell me their current savings balance.
+Find transactions for member 12345 from 2026-09-01 through 2026-09-11 and show the filtered results.
+Get an as-of 2026-09-30 payoff quote for member 12345's auto loan.
+~~~
+
+The standalone target documents the visible controls and exact routes in [legacy-demo/README.md](../legacy-demo/README.md). The normal member 12345 path returns a savings balance, three September transaction rows for the example range, and a deterministic payoff amount of $18,968.53. Member 77777 exercises the existing same-session Retry Search transient. Member 88888 exercises supervisor verification and human takeover. Unknown member and date/loan fixtures return explicit business outcomes rather than crashes.
+
+## Workflow library and direct replay
+
+The browser workspace opens on the Automation library. New automation opens discovery in a dialog. Each saved workflow has a detail view with its description, ordered steps, typed input/output contract, editable title/description, archive/restore controls, recent runs, and a fresh input form. A workflow run always takes fresh input values; previous member IDs and dates are not stored in browser storage or copied into metadata.
+
+The direct run form calls POST /api/workflows/:id/runs with a body shaped like { "inputs": { "member_id": "12345" } }. It validates inputs, refuses archived workflows, runs the selected versioned artifact through the deterministic replay runner, and does not call the LLM for decisions. A successful direct replay reports llmCalls: 0.
+
+To run an artifact with the local CLI from this directory:
+
+~~~bash
+npm run replay -- --artifact ./runtime/live/artifacts/member.lookup-savings-balance.json --input member_id=12345 --target http://127.0.0.1:3001 --headless
+~~~
+
+Use runtime/offline instead of runtime/live for an offline artifact. The CLI prints one JSON result and exits nonzero for invalid artifacts, invalid inputs, policy failures, browser failures, or other hard replay failures.
 
 ## Internal endpoints
 
-- `POST /api/tasks` with `{ "goal": "..." }`
-- `POST /api/tasks` with `Prefer: respond-async` returns `202` and a `runId` immediately; poll the run endpoint.
-- `GET /api/context` for the configured app/workspace, target URL, execution mode, discovery readiness, and learned workflow.
-- `GET /api/workflow` for the schema-validated learned artifact, or `null` when none is available.
-- `GET /api/runs` for newest-first redacted in-memory run history, including terminal runs restored at startup.
-- `GET /api/runs/:runId`
-- `GET /api/runs/:runId/events`
-- `GET /api/interventions/:id/screenshot`
-- `POST /api/interventions/:id/claim`
-- `POST /api/interventions/:id/resume`
-- `POST /api/interventions/:id/abort`
-- `POST /api/interventions/:id/actions` for redacted human-action records
+- POST /api/tasks with { "goal": "..." } for a natural-language task; the server may match an active workflow or start discovery.
+- GET /api/workflows lists durable workflow metadata.
+- GET /api/workflows/:id returns metadata, the validated artifact, and recent workflow runs.
+- PATCH /api/workflows/:id edits title, description, and archived state.
+- POST /api/workflows/:id/runs runs a selected workflow with typed inputs and zero model decision calls.
+- GET /api/runs and GET /api/runs/:runId provide redacted searchable history and details.
+- GET /api/runs/:runId/events provides the structured activity feed.
+- GET /api/interventions/:id/screenshot and POST /api/interventions/:id/claim, /resume, /abort support same-session handoff.
+- POST /api/interventions/:id/actions records a redacted human-action event while the operator owns the lease.
 
-The browser seam is `SurfaceAdapter`; `PlaywrightSurfaceAdapter` is the live implementation and `ScriptedDemoSurfaceAdapter` is the offline test/demo implementation. Policy checks origin, route, action kind, resolved target risk, and control owner before browser actions. Terminal run summaries and JSONL events are loaded again at startup. Live artifacts are written under `runtime/live/artifacts`; offline artifacts use the offline runtime namespace (an explicitly injected offline root retains its historical `artifacts/` and `evidence/` paths), so a scripted artifact cannot be selected by live execution. Pass `runtimeDir` or `storageRoot` to `createCompanion` in tests to inject another root.
+These are local companion routes for the browser workspace and workflow library. They do not call a target API; all target actions still go through the rendered UI.
+
+## Development
+
+~~~bash
+npm test
+npm run typecheck
+npm run build
+npx vitest run test/playwright-workflows.test.ts
+~~~
+
+The repository preserves a sanitized historical provider-backed discovery package under ../evidence/. It contains a real discovery summary, artifact, zero-LLM replay, and MEMBER_NOT_FOUND replay without a provider key. The separate [savings runtime verification](../evidence/savings-runtime-verification.json) records five direct replay/handoff scenarios plus one restart persistence check with zero model decision calls. Neither package claims fresh provider discovery or verification of the expanded transaction and loan flows; the final provider attempts for those families were unreliable, while their scripted browser coverage is recorded in [the acceptance checklist](../docs/MVP-ACCEPTANCE.md). Only savings has genuine historical provider evidence.
+
+The local review workspace contains the previously learned savings workflow. A fresh checkout starts with an empty library until discovery or artifact loading. The library and internal API support multiple compatible workflow records, and local tests cover that behavior; the running workspace should not be described as pre-seeding one saved record for each target family.

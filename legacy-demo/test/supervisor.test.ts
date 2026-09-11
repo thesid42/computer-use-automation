@@ -37,7 +37,7 @@ test('the supervisor fixture requires a visible acknowledgement in the same sess
 
   assert.equal(acknowledged.statusCode, 200);
   assert.match(acknowledged.body, /Supervisor verification acknowledged/i);
-  assert.match(acknowledged.body, /href="\/servicing\/member\/88888\/summary"/);
+  assert.match(acknowledged.body, /href="\/servicing\/member\/88888\/summary"[^>]*>Member Summary</i);
 
   await app.close();
 });

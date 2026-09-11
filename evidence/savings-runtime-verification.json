@@ -1,0 +1,50 @@
+{
+  "scope": "Final local runtime verification for the savings capability",
+  "targetData": "synthetic",
+  "modelCalls": 0,
+  "scenarios": [
+    {
+      "name": "success",
+      "status": "succeeded",
+      "output": {
+        "current_savings_balance": {
+          "amount": "1250.42",
+          "currency": "USD"
+        }
+      }
+    },
+    {
+      "name": "MEMBER_NOT_FOUND",
+      "status": "business_outcome"
+    },
+    {
+      "name": "PERMISSION_DENIED",
+      "status": "business_outcome"
+    },
+    {
+      "name": "transient recovery",
+      "status": "succeeded",
+      "output": {
+        "current_savings_balance": {
+          "amount": "843.17",
+          "currency": "USD"
+        }
+      }
+    },
+    {
+      "name": "same-session handoff",
+      "status": "succeeded",
+      "humanActionRecorded": true
+    }
+  ],
+  "restart": {
+    "status": "passed",
+    "restoredRunCount": 33,
+    "modelCalls": 0
+  },
+  "notes": [
+    "This package records five direct replay and handoff scenarios plus one restart persistence check.",
+    "It is runtime verification, not a new provider-backed discovery package.",
+    "No credentials or concrete member identifiers are included."
+  ]
+}

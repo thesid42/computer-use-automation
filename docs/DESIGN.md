@@ -1,585 +1,202 @@
-# Computer-Use Automation Companion — Design
+# Computer-Use Automation Companion — Product and system design
 
-**Status:** MVP revision in implementation; acceptance requires live evidence  
-**Audience:** Engineering reviewers and implementers  
-**Primary goal:** Demonstrate an LLM discovering an unseen UI workflow once, compiling the verified run into a typed capability, and replaying it deterministically without an LLM.
+**Status:** final MVP design; fresh verification is tracked in [MVP-ACCEPTANCE.md](MVP-ACCEPTANCE.md).
+
+The product demonstrates the path from a natural-language request to a reusable UI automation. A model discovers a workflow once, the system records a typed capability, and later runs replay that capability without an LLM deciding what to do.
 
 ## 1. Product definition
 
-The deliverable is a local **Automation Companion** that an operator can return to throughout the day. It keeps completed runs and a learned workflow available across restarts, shows progress while work happens, and makes blocked work actionable. An end user enters a natural-language request for the configured back-office application, such as:
+The Automation Companion is a local operator workspace for discovering and reusing automations against a configured back-office application. The operator can start a new discovery, browse run history, open a saved automation, edit its title and description, archive or restore it, and start a typed replay from its detail view. A Needs attention view explains blocked runs and exposes same-session human takeover.
 
-> Look up member 12345 and tell me their current savings balance.
+The repository contains two independent applications:
 
-The user does not provide selectors, parameter declarations, output schemas, model settings, URLs, or a choice between discovery and replay. The system derives those implementation details internally.
+1. legacy-demo/ is a synthetic, server-rendered member-servicing application. It is the target surface and has no dependency on the companion.
+2. companion/ is the natural-language workspace, discovery recorder, capability compiler, deterministic replay engine, policy gate, evidence recorder, and handoff controller.
 
-The MVP contains two independently runnable applications:
+The companion reaches the target through its visible browser UI. The target offers no business API to the companion. The companion does not import target source, read its data store, or use hidden automation hooks. Companion HTTP endpoints are internal workspace/library routes and do not bypass the target UI.
 
-1. **`legacy-demo/`** — a standalone, synthetic, legacy-style member-servicing application. It is the target surface and knows nothing about the automation system.
-2. **`companion/`** — a standalone natural-language companion, discovery recorder, deterministic replay engine, policy gate, evidence recorder, and human-handoff UI. It knows the target only through configuration and browser-visible behavior.
+The target currently exposes three supported read-only workflow families:
 
-They communicate only through the legacy application's browser UI over HTTP. The companion must not import legacy-demo code, read its data store, call hidden business APIs, or depend on its implementation details.
+- savings balance lookup;
+- savings transaction history search;
+- loan account payoff quote.
 
-## 2. Scope
+The library and artifact contracts can retain more compatible saved workflows, but discovery and adapters support these three families in this MVP. The current main runtime is seeded with one savings-balance record; multi-workflow storage and API behavior are covered by local tests. Unsupported or ambiguous requests stop with clarification rather than inventing a capability.
 
-### In scope
+## 2. Scope and product behavior
 
-- One natural-language front door in a local web companion.
-- One configured target application profile.
-- One learned capability: `member.lookup-savings-balance`.
-- A real LLM-driven observe → decide → act discovery run.
-- Screenshot plus accessibility/visible-control observations.
-- Policy validation before every browser action.
-- A typed, versioned, reviewable JSON capability artifact.
-- Deterministic replay with no LLM calls.
-- Typed outputs and explicit business, recoverable, and hard-failure results.
-- Structured JSONL evidence and screenshots.
-- Same-session human takeover, control ownership, and resume.
-- A credible adapter seam for future browser/desktop surfaces and tenant variants.
+The MVP includes:
 
-### Explicitly out of scope
+- a New automation discovery dialog accepting a plain-language goal;
+- one configured target profile and one genuine LLM-driven discovery path;
+- a durable multi-workflow library with active and archived metadata;
+- automation detail showing description, ordered steps, typed inputs and outputs, and a replay form;
+- editable title and description, archive, and restore operations;
+- deterministic replay through a typed workflow-run endpoint and a local replay CLI;
+- searchable run history with result, mode, activity, and redacted evidence;
+- a Needs attention view with same-session human takeover and resume;
+- policy checks, structured JSONL events, screenshots, and namespaced runtime storage.
 
-- Real banking systems, credentials, or PII.
-- A public capability catalog or external agent-facing API.
-- Code generation from artifacts.
-- Formal draft/approved confidence lifecycle.
-- LLM-assisted replay recovery.
-- A second tenant implementation or cross-tenant demonstration.
-- Repeated-run stability dashboards.
-- Remote desktop/co-browsing infrastructure.
-- Desktop automation implementation.
-- Queues, clusters, distributed workers, or production authentication/RBAC.
-- Irreversible financial transactions.
+A normal natural-language task does not require the operator to choose discovery versus replay. The Goal Controller matches an active compatible workflow when possible and runs discovery on a miss. The automation detail form is the explicit path when the operator already knows which saved workflow to run.
+
+Persistence is local and single-process. Workflow metadata is durable and user-editable. The executable, versioned capability artifact and run evidence live in a separate runtime namespace and are linked by workflow ID/version. Archived workflows remain visible in the library but are excluded from automatic matching and direct replay until restored. A saved workflow record can be restored after restart; an interrupted browser session is not falsely presented as resumable.
 
 ## 3. User experience
 
-### Product correction: a reusable workspace
+The workspace has Automations, Run history, and Needs attention navigation, with New automation as the primary action. The New automation dialog asks for a goal while configured application context supplies the target URL and execution mode. The result view leads with the requested balance, transaction rows, payoff amount, or business outcome and keeps technical evidence behind run detail.
 
-The original one-form page is insufficient for repeat use. The MVP must make three activities obvious: start a task, revisit a run, and reuse a learned workflow. The companion is an operator workspace with functional navigation, not a developer console or a dashboard of invented statistics.
+The Automations list shows titles, descriptions, compatibility, input/output contracts, active or archived state, and last-run information. The detail view shows ordered steps and locator intent, permits title/description edits, and renders a fresh input form from the typed artifact. Submitting that form calls the selected workflow direct-run endpoint; member IDs and dates are entered for that invocation and are never copied from prior runs into browser storage or metadata.
 
-- **New task:** one prominent goal composer and configured application context. The context API supplies the offline/live mode and provider-readiness fields; a successful task shows the requested balance first.
-- **Run history:** browse previous completed tasks, select a run, and inspect its result, execution method, and activity. History survives a process restart. Sensitive inputs are masked; reusing a workflow asks for a fresh member identifier rather than storing the previous identifier in browser storage.
-- **Learned workflow:** a plain-language description of the saved capability, its input and output contract, and a way to start another task. The schema-validated technical artifact is available through the read-only `/api/workflow` endpoint and the namespaced runtime file; the workspace keeps it out of the primary task flow. This is the local operator's saved workflow view, not the optional external capability marketplace/API.
-- **Needs attention:** an interrupted run shows the reason, current step, screenshot, and current control owner. Take Control and Continue are available only in the appropriate state. The original session is retained until completion or abort.
+Run history is searchable by goal, workflow, status, and result text. Opening a run shows execution method, model-call count, typed result or failure, activity events, and available evidence. A run that needs a person carries its intervention reason, current step, latest target screenshot, and control owner. Take control claims the existing target session; Continue returns ownership to automation and causes a fresh observation before any next action.
 
-Run progress must update before completion. Each submission receives its own run ID, so an unresolved run remains pollable while another task is submitted. Network errors preserve the current run so the user can recover the view without resubmitting the automation. Loading, empty, running, business outcome, failure, and human-control states each have deliberate presentation. Color supplements status text; keyboard focus, labels, and narrow-screen layouts remain usable.
-
-Persistence is intentionally local and single-process. Terminal run summaries and redacted JSONL events are restored from disk; a crashed browser session is not represented as resumable after restarting the application. Offline scripted artifacts and evidence are isolated from live execution so a demonstration cannot silently become a purported real learned workflow.
-
-### 3.1 Launch
-
-The user runs:
-
-```bash
-npm run companion
-```
-
-The command starts the companion server and prints its local URL. The operator opens that URL in a browser. Each application retains its own package, scripts, configuration, and process.
-
-### 3.2 Natural-language task
-
-The companion shows the configured app context and one prompt field:
-
-```text
-Connected: Demo Credit Union · Member Servicing
-
-What would you like me to do?
-[ Look up member 12345 and tell me their savings balance. ] [Run]
-```
-
-The target application is selected by an application profile, not encoded in the user's prompt. With multiple applications, a normal app selector could set that profile.
-
-### 3.3 Discovery versus replay
-
-The Goal Controller checks saved capability signatures before execution:
-
-- Exactly one safe capability match with valid slot extraction → deterministic replay.
-- No match → LLM discovery.
-- Ambiguous match or missing information → ask a plain-language clarification.
-
-The user does not choose the execution mode.
-
-### 3.4 Result
-
-The primary response is the requested result:
-
-```text
-Current savings balance: $1,250.42
-```
-
-After a new discovery, the UI may add:
-
-```text
-I completed this as a new workflow and saved it for reuse.
-Learned: Look up a member's savings balance
-Reusable input: Member ID
-Returns: Current savings balance
-```
-
-The technical artifact remains available through `GET /api/workflow` and in the namespaced artifact directory.
+Loading, empty, running, business-outcome, failure, archived, and human-control states have explicit copy. Status text is present even where color is used, and the layout remains usable with keyboard focus and a narrow viewport.
 
 ## 4. Standalone application boundaries
 
-```text
-+-------------------------------+      browser-visible HTTP only      +-------------------------------+
-| companion/                    | ----------------------------------> | legacy-demo/                  |
-|                               |                                     |                               |
-| Natural-language UI           | <---------------------------------- | Server-rendered legacy UI     |
-| Goal controller               |       screenshots / visible state   | Synthetic member data         |
-| Discovery + replay            |                                     | Runtime failure scenarios     |
-| Policy + evidence             |                                     | Session state                 |
-| Human control lease           |                                     | No automation imports/hooks   |
-+-------------------------------+                                     +-------------------------------+
-```
+~~~text
++-------------------------------+      browser-visible UI       +-------------------------------+
+| companion/                    | -----------------------------> | legacy-demo/                  |
+|                               | <----------------------------- |                               |
+| discovery and replay          |   rendered pages/screenshots   | server-rendered target UI     |
+| workflow library and UI       |                                 | synthetic member records      |
+| policy, evidence, handoff     |                                 | session and failure fixtures  |
++-------------------------------+                                 +-------------------------------+
+~~~
 
-### Decoupling invariants
+Each application has its own package, process, tests, and start command. TARGET_URL is configuration. There is no shared database or in-process import between the applications. This boundary exercises the assignment's no-API case: Playwright observes and acts on what a human could see, while the companion's own local API only serves its browser workspace.
 
-- Separate `package.json`, TypeScript configuration, tests, and start commands.
-- No workspace-level source imports between applications.
-- No shared database or shared in-process memory.
-- Companion target URL is supplied by configuration.
-- Companion discovers controls from the rendered surface; it does not use demo-specific test IDs.
-- The demo can be opened and operated manually without the companion.
-- The companion can start against another compatible URL without rebuilding the demo.
+## 5. Runtime architecture and local API
 
-## 5. Proposed repository structure
+The companion is a local Fastify process. Its main components are:
 
-```text
-/
-  README.md
-  REPORT.md
-  package.json                    # convenience scripts only
-  docs/
-    DESIGN.md
-  legacy-demo/
-    package.json
-    tsconfig.json
-    src/
-    test/
-    README.md
-  companion/
-    package.json
-    tsconfig.json
-    src/
-      app/                        # web companion routes and assets
-      domain/                     # contracts, result taxonomy, run state
-      goal/                       # intent inference and capability matching
-      discovery/                  # observe-decide-act loop
-      replay/                     # deterministic executor
-      surface/                    # SurfaceAdapter and Playwright adapter
-      policy/                     # allowlist and risk gate
-      artifact/                   # schema and compiler
-      evidence/                   # JSONL and screenshots
-      handoff/                    # lease and intervention flow
-      llm/                        # OpenAI-compatible provider adapter
-    test/
-    config/
-      demo-app.json
-    README.md
-  artifacts/
-  evidence/
-```
+- Goal Controller: validates a plain-language request and chooses an active compatible capability or discovery.
+- Discovery runner: performs observe → decide → validate → act against a live browser surface and compiles the verified run.
+- Workflow library: stores durable metadata for multiple artifacts, including title, description, archive state, and artifact linkage.
+- Replay runner: executes a validated artifact with typed inputs and no model decision calls.
+- Policy gate: checks origin, route, action kind, risk, and control ownership before every browser action.
+- Evidence and run store: keeps redacted event streams, screenshots, terminal summaries, and searchable run metadata.
+- Control lease: pauses automation, transfers the same session to a human, and transfers it back on resume.
 
-## 6. Target application: legacy-demo
+Canonical companion endpoints are:
 
-The demo is a small server-rendered application with stable but intentionally imperfect markup:
+| Endpoint | Purpose |
+| --- | --- |
+| POST /api/tasks | Start a natural-language task; a miss may run discovery and save a workflow. |
+| GET /api/workflows | List durable workflow metadata. |
+| GET /api/workflows/:id | Read one workflow's metadata, contract, detail, and recent workflow runs. |
+| PATCH /api/workflows/:id | Edit title, description, or archived state. |
+| POST /api/workflows/:id/runs | Validate typed inputs and run the selected workflow through direct deterministic replay. |
+| GET /api/runs and GET /api/runs/:runId | List/search and inspect redacted run history. |
+| GET /api/runs/:runId/events | Read the structured activity feed. |
+| intervention routes | Claim, resume, abort, and inspect a same-session intervention. |
 
-- table-based navigation and result layouts,
-- a nested iframe for the servicing area,
-- no `data-testid` attributes,
-- labels and visible text that a human can understand,
-- synthetic data only.
+The direct workflow-run endpoint accepts an input object such as { "inputs": { "member_id": "12345" } }. It does not call the LLM for decisions. A successful direct replay reports zero model decision calls. These endpoints are local internal APIs for the companion UI and automation library; they do not constitute a target business API.
 
-### Happy path
+The SurfaceAdapter seam isolates perception and action from the recorded flow:
 
-```text
-Home
- → Member Search
- → enter member ID
- → Search
- → open matching result
- → Member Summary
- → Accounts tab
- → select Savings Account
- → Balance Details
- → extract Current Balance
-```
-
-### Scenario coverage
-
-- `12345`: success.
-- unknown identifier: `MEMBER_NOT_FOUND` business outcome.
-- a seeded identifier: permission denied business outcome.
-- a seeded transient condition: one bounded retry succeeds.
-- a seeded supervisor-verification state: human intervention required.
-- a visible risky action such as “Post Fee”: blocked by the read-only companion policy.
-
-Scenario values are synthetic fixtures. They are not exposed to the discovery model as hidden instructions.
-
-## 7. Internal goal interpretation
-
-For the single-workflow MVP, a conservative deterministic interpreter converts the user utterance into a provisional internal intent. This keeps repeated invocations independent of model availability. Broader intent interpretation is deferred; unsupported goals receive clarification rather than a fabricated workflow. For example:
-
-```json
-{
-  "objective": "lookup_member_savings_balance",
-  "entities": [
-    {
-      "proposedName": "member_id",
-      "value": "12345",
-      "sourceSpan": "member 12345",
-      "type": "string",
-      "sensitivity": "member_identifier"
-    }
-  ],
-  "requestedOutputs": [
-    {
-      "proposedName": "current_savings_balance",
-      "type": "money",
-      "currency": "USD"
-    }
-  ],
-  "risk": "read_only"
-}
-```
-
-This structure is generated and validated internally. The user never authors it.
-
-### Inference rules
-
-- Concrete values must cite an exact source span from the user's utterance.
-- Identifiers remain strings, even when numeric-looking.
-- The compiler generalizes only values linked to user-input provenance and verified UI actions.
-- Constraints remain conservative; one five-digit sample does not prove every valid member ID has five digits.
-- Missing or ambiguous information produces a natural-language clarification.
-
-## 8. Discovery model
-
-### Initial model
-
-Use NVIDIA NIM with:
-
-```text
-model: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
-base URL: https://integrate.api.nvidia.com/v1
-```
-
-If live evaluation shows unreliable screenshot grounding or tool output, switch configuration to OpenRouter `qwen/qwen3-vl-30b-a3b-instruct`; Fireworks `accounts/fireworks/models/qwen3p7-plus` is a further manual alternative.
-
-The implementation uses one OpenAI-compatible client configured by:
-
-```env
-LLM_BASE_URL=
-LLM_API_KEY=
-LLM_MODEL=
-```
-
-No automatic provider/model switching occurs inside a run. Every discovery log records the exact provider endpoint, model ID, and non-secret generation settings.
-
-## 9. Observe → decide → validate → act loop
-
-```text
-SurfaceSnapshot
-  screenshot
-  URL/title/frame path
-  temporary interactable refs
-  visible text/dialogs
-        |
-        v
-Discovery model
-  returns exactly one typed action
-        |
-        v
-Schema validation
-        |
-        v
-Policy and ownership gate
-        |
-        v
-SurfaceAdapter action
-        |
-        v
-Verified RunEvent + fresh observation
-```
-
-### Allowed discovery commands
-
-- `click(ref)`
-- `fill(ref, value | inputReference)`
-- `selectOption(ref, option)`
-- `wait(condition)`
-- `extract(ref, parseAs)`
-- `finish(outputs, checkpoint)`
-- `requestHuman(reason)`
-- `clickPoint(x, y)` only when no semantic reference exists
-
-The model receives temporary references valid only for the current snapshot. It never supplies persistent selectors.
-
-### Stopping conditions
-
-- verified completion,
-- explicit human request,
-- maximum action count,
-- wall-clock timeout,
-- repeated materially identical state,
-- policy denial,
-- unrecoverable surface failure.
-
-## 10. Surface abstraction
-
-```ts
+~~~ts
 interface SurfaceAdapter {
   start(target: TargetProfile): Promise<SessionHandle>;
   observe(session: SessionHandle): Promise<SurfaceSnapshot>;
-  act(session: SessionHandle, action: ArtifactAction): Promise<ActionResult>;
   resolve(session: SessionHandle, target: TargetSpec): Promise<Resolution>;
-  extract(session: SessionHandle, spec: { target: TargetSpec; parseAs: 'text' | 'money' | 'string' }): Promise<unknown>;
-  captureEvidence(session: SessionHandle): Promise<{ path: string; url: string }>;
+  act(session: SessionHandle, action: ArtifactAction): Promise<ActionResult>;
+  extract(session: SessionHandle, spec: ExtractionSpec): Promise<unknown>;
+  captureEvidence(session: SessionHandle): Promise<EvidenceCapture>;
   bringToHuman(session: SessionHandle): Promise<void>;
   close(session: SessionHandle): Promise<void>;
 }
-```
+~~~
 
-The MVP implements `PlaywrightSurfaceAdapter`. Future browser-page, accessibility, image-anchor, UIA, or AX implementations map the same artifact primitives to their native mechanisms.
+PlaywrightSurfaceAdapter is the implemented browser adapter. Accessibility, visible-text, frame, image-anchor, Windows UIA, and macOS accessibility adapters can implement the same seam later without changing the artifact action vocabulary.
 
-## 11. Run recording and capability compilation
+## 6. Target application and supported workflows
 
-Every executed action produces a verified `RunEvent` containing (where applicable):
+The target is a synthetic legacy-style application with an intentionally dense early-2000s workstation appearance: nested iframe, table-based layouts, small system fonts, numbered fields, blue/gray title strips, square beveled controls, full-page server forms, and a status bar. It has no data-testid attributes or hidden automation API.
 
-- action and sanitized intent,
-- temporary model reference,
-- resolved control role/name/text/frame,
-- input provenance rather than raw sensitive values,
-- before/after state fingerprints,
-- outcome and optional timing,
-- evidence references.
+The balance path is:
 
-The raw model transcript is not the capability.
+~~~text
+Member Search → enter member ID → Search → Member Summary
+→ Accounts → Savings Account → Balance Details → Current Balance
+~~~
 
-The compiler combines:
+The transaction path follows Savings Account → Transaction History, fills Start Date and End Date, submits Search Transactions, and extracts the rendered Transaction results table. Filtering is inclusive. Reversed or malformed dates return INVALID_DATE_RANGE; a valid range with no rows returns NO_TRANSACTIONS.
 
-1. user-utterance provenance,
-2. provisional intent,
-3. verified browser events,
-4. final output extraction,
-5. final visible checkpoint.
+The payoff path follows Accounts → Loan Accounts → Auto Loan or Personal Loan → Request Payoff Quote, fills As-of Date, and submits the read-only quote form. The result is Payoff quote review with As-of Date and Payoff Amount. Dates before loan opening or after 2026-12-31 return UNSUPPORTED_AS_OF_DATE; malformed dates return INVALID_AS_OF_DATE; a member without a loan returns NO_LOAN. No payment or account change can be submitted.
 
-It then emits a typed artifact. Model proposals are accepted only when grounded in those inputs and valid against the artifact schema.
+Synthetic fixtures include 12345 for the normal paths, 77777 for the bounded transient search retry, and 88888 for same-session supervisor verification and human takeover. 54321 returns PERMISSION_DENIED and unknown IDs such as 40404 return MEMBER_NOT_FOUND. The visible Post Fee control is a read-only policy-denial fixture. These cases demonstrate runtime outcomes; they do not imply support for arbitrary member-servicing tasks or writes.
 
-## 12. Capability artifact
+## 7. Discovery and recording
 
-The JSON artifact includes:
+The model receives a screenshot, URL/title/frame context, visible text, and temporary control references for the current observation. It returns one typed action at a time. Allowed actions are click, fill, selectOption, wait, extract, finish, requestHuman, and a constrained clickPoint fallback. Schema validation, policy, and the control lease run before the adapter acts. A malformed proposal can receive only bounded repair attempts; the model never supplies a persistent selector directly to replay.
 
-- schema version,
-- capability ID and semantic version,
-- title and intent signature,
-- typed inputs and conservative validation,
-- typed outputs,
-- business outcomes,
-- risk and policy profile,
-- ordered actions,
-- ordered locator strategies,
-- preconditions and postconditions,
-- explicit waits/retries,
-- output extraction rules,
-- final checkpoint,
-- application-family compatibility metadata.
+Every verified action becomes a sanitized event containing action kind, temporary reference, resolved role/name/text/frame, state fingerprints, outcome, timing where useful, and evidence references. Input provenance is stored as a reference such as fromInput: member_id; concrete member values are not compiled into artifacts. The raw model transcript is not the capability contract.
 
-### Target strategy order
+The provider is one OpenAI-compatible adapter. LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, action mode, and bounded timeout are loaded from environment configuration. The API key is used for the request header only; it is not written to workflow metadata, artifacts, run events, screenshots, or summaries. Offline mode injects a scripted model/surface for deterministic local demonstrations and tests and is kept in a separate namespace from live artifacts.
 
-The artifact schema can represent accessible role/name, associated label, exact visible text, text-relative structure, frame path/URL, constrained fingerprints, and visual anchors. The MVP Playwright resolver implements role/name, label, visible text, relative text, and frame path/URL. Fingerprint and visual-anchor resolution remain an explicit adapter extension; an artifact does not silently fall back to an unsupported strategy. Replay requires exactly one acceptable match. Ambiguity is a failure, not permission to choose the first element. Absolute coordinates are not a normal replay locator.
+## 8. Capability artifact
 
-## 13. Deterministic capability matching
+The versioned artifact is the executable contract linked from a workflow library record. It contains:
 
-For the one-capability MVP, each artifact contains an intent signature and deterministic phrase/slot patterns:
+- schemaVersion, capabilityId, semantic version, and application compatibility;
+- an intent signature used for conservative natural-language matching;
+- typed input declarations and validation, including member_id identifiers and ISO dates;
+- typed outputs, such as USD money or a rendered transaction result;
+- expected business outcomes and risk/policy profile;
+- ordered actions with preconditions, postconditions, explicit waits, and bounded retries;
+- ordered target strategies (role/name, label, visible text, relative text, frame path/URL, constrained fingerprint, or visual anchor where an adapter implements it);
+- extraction rules and a final checkpoint.
 
-```json
-{
-  "intent": "lookup_member_savings_balance",
-  "requiredConcepts": ["member", "savings", "balance"],
-  "phrases": [
-    "look up member {member_id} savings balance",
-    "savings balance for member {member_id}"
-  ]
-}
-```
+The library owns human-facing metadata such as title, description, active/archive state, and last-run references. The artifact remains schema-validated, versioned runtime data. Separating those concerns lets an operator improve discoverability without silently changing a recorded action sequence.
 
-A unique match with valid slot extraction invokes replay. A miss invokes discovery. An ambiguous match asks for clarification. This avoids putting an LLM in the replay decision loop for the MVP.
+Replay resolves strategies in a fixed order and requires exactly one acceptable match. Ambiguity, unsupported strategy fallback, and a missing target are errors. Absolute coordinates are not a normal replay locator.
 
-## 14. Deterministic replay
+## 9. Replay and result contract
 
-Replay accepts the saved artifact and resolved inputs internally. For each step it:
+For each replay step the runner validates the artifact and typed inputs, verifies automation owns the session, checks the precondition, resolves one target, applies policy, acts, waits, verifies the postcondition, detects declared outcomes, and records evidence. It has no LLM dependency. The final output is returned only after the final checkpoint is verified.
 
-1. validates artifact and inputs,
-2. verifies automation owns the session,
-3. checks the precondition,
-4. resolves the target using a fixed strategy order,
-5. applies policy,
-6. performs the primitive action,
-7. waits on an explicit condition,
-8. verifies the postcondition,
-9. detects declared outcomes,
-10. continues, retries, escalates, or terminates.
+The result is one of:
 
-The replay module has no LLM dependency. Tests and evidence report `llmCalls: 0`.
-
-## 15. Result taxonomy
-
-```ts
+~~~ts
 type RunResult =
-  | { status: "succeeded"; outputs: Record<string, unknown>; checkpointVerified: true }
-  | { status: "business_outcome"; code: string; details?: Record<string, unknown> }
-  | { status: "needs_human"; interventionId: string; reason: string; stepId: string }
-  | { status: "failed"; error: RunFailure };
-```
+  | { status: 'succeeded'; outputs: Record<string, unknown>; checkpointVerified: true }
+  | { status: 'business_outcome'; code: string; details?: Record<string, unknown> }
+  | { status: 'needs_human'; interventionId: string; reason: string; stepId: string }
+  | { status: 'failed'; error: RunFailure };
+~~~
 
-### Expected business outcomes
+MEMBER_NOT_FOUND, PERMISSION_DENIED, ACCOUNT_NOT_FOUND, NO_TRANSACTIONS, NO_LOAN, INVALID_DATE_RANGE, INVALID_AS_OF_DATE, and UNSUPPORTED_AS_OF_DATE are caller-visible target outcomes where declared by the workflow. A transient load, harmless known interstitial, stale observation, or bounded slow response may be retried according to the artifact. An invalid invocation, ambiguous target, unexpected dialog, exhausted recovery, checkpoint mismatch, extraction error, browser failure, or policy violation stops with the step, expected state, observed state, and evidence reference.
 
-- `MEMBER_NOT_FOUND`
-- `PERMISSION_DENIED`
-- `ACCOUNT_NOT_FOUND`
+## 10. Heterogeneity and tenant reuse
 
-### Recoverable conditions
+The artifact expresses intent and control behavior independently of how a surface is perceived. A browser adapter can resolve role/name, label, visible text, frames, or visual anchors; a legacy browser or desktop adapter can map the same action contract to accessibility or OS-native controls. The artifact does not assume a clean DOM or a target API.
 
-- transient load failure,
-- known harmless interstitial,
-- stale observation,
-- bounded slow response.
+At larger scale, a library record would be scoped to an application family and tenant policy, while a tenant profile supplies base URL, branding aliases, version fingerprints, permissions, and narrowly scoped locator overrides. A shared artifact can be selected only when the target fingerprint is compatible. A mismatch creates a review or a specialized version; it never silently rewrites the shared artifact. This repository implements one target profile and three read-only workflow families, so tenant registry, cross-tenant rollout, and desktop adapters remain design seams rather than delivered infrastructure.
 
-### Hard failures
+## 11. Safety and human handoff
 
-- invalid invocation or artifact,
-- target missing or ambiguous,
-- unexpected dialog,
-- exhausted recovery,
-- checkpoint mismatch,
-- output parse failure,
-- browser/surface failure,
-- policy violation.
+Discovery and replay share the same policy gate. It allowlists origins and routes, allowed action kinds, a maximum risk class, and the current control owner. Actions are classified as READ_ONLY, REVERSIBLE_WRITE, or IRREVERSIBLE_WRITE. The demonstrated workflows are read-only, and the visible Post Fee action is denied before it can change the target.
 
-Failures include step ID, expected state, observed state, and an evidence reference.
+The control state is explicit:
 
-## 16. Safety and data handling
+~~~text
+AUTOMATION_CONTROL → INTERVENTION_OPEN → HUMAN_CONTROL
+                                      ↘ AUTOMATION_CONTROL | ABORTED
+~~~
 
-Every action in discovery and replay passes through the same policy gate.
+When the runner is stuck, sees a required supervisor decision, or cannot safely recover, it pauses and records the run, capability, step, reason, state summary, current control owner, and a screenshot. The operator claims the lease, and the headed browser page already used by the runner is brought forward. Human click/change/navigation events are recorded with values redacted. Continue returns the lease to automation and forces a fresh observation; Abort closes the session safely. The local UI is a minimal operator surface, not a remote co-browsing product.
 
-### Policy dimensions
+All target records and packaged screenshots are synthetic. Keys belong in ignored environment files. Operational member identifiers and entered input values are masked in user-visible activity; the rendered transaction result retains its business dates so the operator can verify the filtered ledger. Artifacts store input references, not raw values; and hidden chain-of-thought is not persisted. Runtime, workflow metadata, and offline namespaces keep scripted artifacts separate from live execution and keep credentials out of artifacts and logs.
 
-- allowed origins,
-- allowed route patterns,
-- allowed action kinds,
-- maximum risk level,
-- session control owner.
+## 12. Verification and evidence
 
-### Risk classes
+The repository preserves the original sanitized package under [evidence/](../evidence/), including a genuine provider-backed discovery summary, a compiled artifact, a zero-LLM replay, and a MEMBER_NOT_FOUND replay. That package records the 2026-09-10 OpenRouter run and contains no key or raw credentials. It is historical evidence for the discovery/replay vertical slice; it does not claim current coverage of the three expanded target workflows or library edit routes. Run the final-checkout commands in [MVP-ACCEPTANCE.md](MVP-ACCEPTANCE.md) before recording current pass status.
 
-- `READ_ONLY`
-- `REVERSIBLE_WRITE`
-- `IRREVERSIBLE_WRITE`
+The frozen local checks report 21/21 legacy target tests, 71/71 companion tests, passing root typecheck and build, and 2/2 scripted browser workflow tests. These checks do not represent fresh provider-backed discovery. The final transaction and loan provider attempts were unreliable: transaction JSON failed after 16 calls at the progress bound, a tool-retry run failed after 2 calls on unsupported or missing tool-call output, loan JSON reached Loan Accounts after 8 calls before a 60-second timeout, an improved-prompt transaction run failed after 12 calls during malformed action repair, and a same-Nano standard-route attempt returned HTTP 404 after one call. Only savings retains genuine historical provider evidence. The reproducible commands are:
 
-The MVP capability is read-only. A visible risky control is blocked under its policy. The model cannot override the gate.
-
-### Sensitive-data rules
-
-- synthetic records only,
-- model keys only in ignored environment files,
-- member identifiers masked in user-visible logs,
-- no raw sensitive values in artifacts,
-- typed actions store `fromInput` references,
-- no hidden chain-of-thought persistence,
-- screenshots in public evidence contain synthetic data.
-
-## 17. Human escalation and same-session handoff
-
-The companion is also the minimal operator surface.
-
-### Control states
-
-```text
-AUTOMATION_CONTROL
-  → INTERVENTION_OPEN
-  → HUMAN_CONTROL
-  → AUTOMATION_CONTROL | ABORTED
-```
-
-### Escalation flow
-
-1. Discovery or replay detects a blocked/unsafe condition.
-2. The runner captures the latest target screenshot.
-3. Automation pauses and creates an intervention containing the run, step, reason, and screenshot path.
-4. The companion displays the reason and screenshot.
-5. The user selects **Take Control**.
-6. The lease changes from automation to human; the action gateway rejects automation input.
-7. The existing headed target browser is brought forward.
-8. The human operates that same session.
-9. Lightweight page instrumentation records click/change/navigation events with sensitive values redacted.
-10. The user returns to the companion and selects **Continue Automation** or **Abort**.
-11. Resume captures a fresh state, transfers the lease, and re-observes before continuing.
-
-The screenshot endpoint is local and run-scoped. During human control, the UI may refresh the image periodically without implementing remote input streaming.
-
-## 18. Companion API seams
-
-The browser UI may use these local endpoints:
-
-- `POST /api/tasks` — submit one natural-language request; the default returns `201` after the run, while `Prefer: respond-async` opts into `202 { runId, status: "pending" }` for immediate polling.
-- `GET /api/context` — returns the configured app/workspace, target URL, `offline`/`live` execution mode, provider readiness, and the learned workflow or `null`.
-- `GET /api/workflow` — returns the current schema-validated workflow or `null`.
-- `GET /api/workflows` — array compatibility alias used by the workspace view.
-- `GET /api/runs` — newest-first redacted in-memory run history; terminal summaries restored at process startup are included.
-- `GET /api/runs/:runId` — current status and final result.
-- `GET /api/runs/:runId/events` — structured activity feed.
-- `GET /api/interventions/:id/screenshot` — latest target screenshot.
-- `POST /api/interventions/:id/claim` — transfer lease to human.
-- `POST /api/interventions/:id/resume` — return lease to automation.
-- `POST /api/interventions/:id/abort` — terminate safely.
-
-These are internal companion endpoints, not the optional external capability catalog API.
-
-## 19. Evidence
-
-```text
-runtime/
-  offline/
-    artifacts/member.lookup-savings-balance.json
-    evidence/<runId>/{run.jsonl,summary.json,capture-*.png}
-  live/
-    artifacts/member.lookup-savings-balance.json
-    evidence/<runId>/{run.jsonl,summary.json,capture-*.png}
-```
-
-A live discovery requires a user-provided provider API key. Deterministic tests use a scripted fake model only to verify system behavior; fake-model evidence is never presented as the required genuine LLM discovery evidence. Terminal summaries and redacted JSONL are restored on startup; an interrupted browser session is not resumed after a process restart. The offline namespace is also mirrored to the legacy local-demo paths for compatibility, while live loading reads only `runtime/live`.
-
-## 20. Testing strategy
-
-Use vertical test-driven slices:
-
-1. Legacy app happy path and business outcomes.
-2. Goal provenance and conservative intent normalization.
-3. Artifact schema and sensitive-value exclusion.
-4. Capability matching and slot extraction.
-5. Policy denial before surface action.
-6. Deterministic replay success with zero LLM calls.
-7. Business-outcome replay.
-8. Intervention creation and control-lease enforcement.
-9. Same-session resume.
-10. Companion task submission and result presentation.
-11. Playwright end-to-end flow across independently running applications.
-
-Live-model discovery is an explicit final integration check after deterministic tests pass.
-
-## 21. Acceptance criteria
-
-- A user submits only a natural-language goal through the companion.
-- The first unseen request is executed by a real vision-capable model against the live target UI.
-- The system emits a valid, reviewable artifact without requiring the user to author its schema.
-- A later invocation uses the artifact with no LLM decision calls.
-- Success returns a typed money result and a verified checkpoint.
-- Not-found returns a business outcome rather than a crash.
-- One transient condition is handled with bounded recovery.
-- A risky action is blocked by policy.
-- A blocked run displays a current screenshot in the companion.
-- A human claims and operates the same target session, then returns control.
-- Both applications run independently from their own folders.
-- The companion contains no source import or hidden API dependency on the demo application.
-
-The implementation and evidence status for these criteria is tracked in [MVP-ACCEPTANCE.md](MVP-ACCEPTANCE.md). The local deterministic and browser integration checks are complete; genuine live-model discovery evidence remains pending until a provider-backed run is captured.
+~~~bash
+npm test
+npm run typecheck
+npm run build
+npm run test --prefix companion -- test/playwright-workflows.test.ts
+~~~

@@ -29,19 +29,22 @@ function persistentTarget(event: RunEvent): { strategies: Array<Record<string, u
 }
 
 export function compileCapability(intent: ProvisionalIntent, events: RunEvent[], targetProfileId = 'demo-app'): CapabilityArtifact {
+  const family = objectiveProfile(intent.objective);
   const artifact: CapabilityArtifact = {
     schemaVersion: 1,
-    capabilityId: 'member.lookup-savings-balance',
+    capabilityId: family.capabilityId,
     version: '1.0.0',
-    title: "Look up a member's savings balance",
+    title: family.title,
     intentSignature: {
-      intent: intent.objective,
-      requiredConcepts: ['member', 'savings', 'balance'],
-      phrases: ['look up member {member_id} savings balance', 'savings balance for member {member_id}']
+      intent: intent.objective, requiredConcepts: family.requiredConcepts, phrases: family.phrases
     },
-    inputs: [{ name: 'member_id', type: 'string', sensitivity: 'member_identifier', validation: { minLength: 1, maxLength: 64 } }],
-    outputs: [{ name: 'current_savings_balance', type: 'money', currency: 'USD' }],
-    businessOutcomes: ['MEMBER_NOT_FOUND', 'PERMISSION_DENIED', 'ACCOUNT_NOT_FOUND'],
+    inputs: intent.entities.map((entity) => ({ name: entity.proposedName, type: 'string' as const, sensitivity: entity.sensitivity, validation: entity.sensitivity === 'date' ? { minLength: 10, maxLength: 10, format: 'iso_date' as const } : { minLength: 1, maxLength: 64 } })),
+    outputs: intent.requestedOutputs.map((output) => ({ name: output.proposedName, type: output.type, ...(output.currency ? { currency: output.currency } : {}) })),
+    businessOutcomes: [
+      'MEMBER_NOT_FOUND', 'PERMISSION_DENIED', 'ACCOUNT_NOT_FOUND',
+      ...(intent.objective === 'lookup_member_transaction_history' ? ['NO_TRANSACTIONS', 'INVALID_START_DATE', 'INVALID_END_DATE', 'INVALID_DATE_RANGE', 'INVALID_DATE'] : []),
+      ...(intent.objective === 'quote_member_loan_payoff' ? ['NO_LOAN', 'UNSUPPORTED_AS_OF_DATE', 'INVALID_AS_OF_DATE', 'INVALID_DATE'] : [])
+    ],
     risk: 'READ_ONLY',
     policyProfile: {
       allowedOrigins: ['http://localhost:3001', 'http://127.0.0.1:3001'],
@@ -49,22 +52,12 @@ export function compileCapability(intent: ProvisionalIntent, events: RunEvent[],
       allowedActionKinds: ['click', 'fill', 'selectOption', 'wait', 'extract', 'finish', 'requestHuman'],
       maxRisk: 'READ_ONLY', controlOwner: 'automation', blockedTargetNamePatterns: ['Post Fee']
     },
-    actions: [
-      { kind: 'fill', id: 'enter-member-id', target: { strategies: [{ label: 'Member ID' }] }, value: { fromInput: 'member_id' }, risk: 'READ_ONLY' },
-      { kind: 'click', id: 'submit-member-search', target: { strategies: [{ role: 'button', name: 'Search' }] }, risk: 'READ_ONLY' },
-      { kind: 'wait', id: 'wait-for-results', condition: 'text:Member Search Results', timeoutMs: 10000 },
-      { kind: 'click', id: 'open-member-result', target: { strategies: [{ text: 'Member Summary' }] }, risk: 'READ_ONLY' },
-      { kind: 'click', id: 'open-accounts', target: { strategies: [{ role: 'link', name: 'Accounts' }, { text: 'Accounts' }] }, risk: 'READ_ONLY' },
-      { kind: 'click', id: 'open-savings-account', target: { strategies: [{ text: 'Savings Account' }] }, risk: 'READ_ONLY' },
-      { kind: 'click', id: 'open-balance-details', target: { strategies: [{ role: 'button', name: 'Balance Details' }, { text: 'Balance Details' }] }, risk: 'READ_ONLY' },
-      { kind: 'extract', id: 'extract-savings-balance', target: { strategies: [{ text: 'Current Balance' }] }, output: 'current_savings_balance', parseAs: 'money' },
-      { kind: 'finish', id: 'finish', outputs: ['current_savings_balance'], checkpoint: 'Current Balance visible' }
-    ],
+    actions: defaultActions(intent.objective),
     preconditions: ['target is on an allowed origin', 'automation owns the session'],
-    postconditions: ['Current Balance visible'],
+    postconditions: [family.checkpoint],
     waits: { defaultTimeoutMs: 10000, retries: 1 },
-    extraction: [{ output: 'current_savings_balance', actionId: 'extract-savings-balance', parseAs: 'money' }],
-    finalCheckpoint: 'Current Balance visible',
+    extraction: intent.requestedOutputs.map((output) => ({ output: output.proposedName, actionId: defaultExtractionActionId(intent.objective), parseAs: output.type })),
+    finalCheckpoint: family.checkpoint,
     compatibility: { applicationFamily: 'legacy-member-servicing', targetProfileId }
   };
   const successfulFinish = [...events].reverse().find((event) => {
@@ -102,4 +95,64 @@ export function compileCapability(intent: ProvisionalIntent, events: RunEvent[],
       .map((action) => ({ output: action.output, actionId: action.id, parseAs: action.parseAs }));
   }
   return capabilitySchema.parse(artifact);
+}
+
+type ObjectiveProfile = {
+  capabilityId: string;
+  title: string;
+  requiredConcepts: string[];
+  phrases: string[];
+  checkpoint: string;
+};
+
+export function objectiveProfile(objective: ProvisionalIntent['objective']): ObjectiveProfile {
+  if (objective === 'lookup_member_transaction_history') return {
+    capabilityId: 'member.lookup-transaction-history', title: "Look up a member's transaction history", requiredConcepts: ['member', 'transaction', 'history'],
+    phrases: ['look up member {member_id} transactions from {start_date} to {end_date}', 'look up member {member_id} and list transactions from {start_date} to {end_date}', 'transaction history for member {member_id} from {start_date} to {end_date}'], checkpoint: 'Transaction History'
+  };
+  if (objective === 'quote_member_loan_payoff') return {
+    capabilityId: 'member.quote-loan-payoff', title: "Get a member's loan payoff quote", requiredConcepts: ['member', 'loan', 'payoff'],
+    phrases: ['loan payoff quote for member {member_id} for {as_of_date}', 'get member {member_id} loan payoff quote for {as_of_date}', 'look up member {member_id} and get a loan payoff quote for {as_of_date}'], checkpoint: 'Loan Payoff Quote'
+  };
+  return {
+    capabilityId: 'member.lookup-savings-balance', title: "Look up a member's savings balance", requiredConcepts: ['member', 'savings', 'balance'],
+    phrases: ['look up member {member_id} savings balance', 'savings balance for member {member_id}'], checkpoint: 'Current Balance visible'
+  };
+}
+
+function defaultActions(objective: ProvisionalIntent['objective']): CapabilityArtifact['actions'] {
+  const member = { kind: 'fill' as const, id: 'enter-member-id', target: { strategies: [{ label: 'Member ID' }] }, value: { fromInput: 'member_id' }, risk: 'READ_ONLY' as const };
+  const search = { kind: 'click' as const, id: 'submit-member-search', target: { strategies: [{ role: 'button', name: 'Search' }] }, risk: 'READ_ONLY' as const };
+  if (objective === 'lookup_member_transaction_history') return [
+    member,
+    { kind: 'fill', id: 'enter-start-date', target: { strategies: [{ label: 'Start Date' }] }, value: { fromInput: 'start_date' }, risk: 'READ_ONLY' },
+    { kind: 'fill', id: 'enter-end-date', target: { strategies: [{ label: 'End Date' }] }, value: { fromInput: 'end_date' }, risk: 'READ_ONLY' },
+    search,
+    { kind: 'extract', id: 'extract-transactions', target: { strategies: [{ text: 'Transactions' }] }, output: 'transactions', parseAs: 'string' },
+    { kind: 'finish', id: 'finish-transactions', outputs: ['transactions'], checkpoint: 'Transaction History' }
+  ];
+  if (objective === 'quote_member_loan_payoff') return [
+    member,
+    { kind: 'fill', id: 'enter-as-of-date', target: { strategies: [{ label: 'As of Date' }] }, value: { fromInput: 'as_of_date' }, risk: 'READ_ONLY' },
+    search,
+    { kind: 'extract', id: 'extract-payoff-quote', target: { strategies: [{ text: 'Payoff Quote' }] }, output: 'payoff_quote', parseAs: 'money' },
+    { kind: 'finish', id: 'finish-payoff-quote', outputs: ['payoff_quote'], checkpoint: 'Loan Payoff Quote' }
+  ];
+  return [
+    member,
+    search,
+    { kind: 'wait', id: 'wait-for-results', condition: 'text:Member Search Results', timeoutMs: 10000 },
+    { kind: 'click', id: 'open-member-result', target: { strategies: [{ text: 'Member Summary' }] }, risk: 'READ_ONLY' },
+    { kind: 'click', id: 'open-accounts', target: { strategies: [{ role: 'link', name: 'Accounts' }, { text: 'Accounts' }] }, risk: 'READ_ONLY' },
+    { kind: 'click', id: 'open-savings-account', target: { strategies: [{ text: 'Savings Account' }] }, risk: 'READ_ONLY' },
+    { kind: 'click', id: 'open-balance-details', target: { strategies: [{ role: 'button', name: 'Balance Details' }, { text: 'Balance Details' }] }, risk: 'READ_ONLY' },
+    { kind: 'extract', id: 'extract-savings-balance', target: { strategies: [{ text: 'Current Balance' }] }, output: 'current_savings_balance', parseAs: 'money' },
+    { kind: 'finish', id: 'finish', outputs: ['current_savings_balance'], checkpoint: 'Current Balance visible' }
+  ];
+}
+
+function defaultExtractionActionId(objective: ProvisionalIntent['objective']): string {
+  if (objective === 'lookup_member_transaction_history') return 'extract-transactions';
+  if (objective === 'quote_member_loan_payoff') return 'extract-payoff-quote';
+  return 'extract-savings-balance';
 }

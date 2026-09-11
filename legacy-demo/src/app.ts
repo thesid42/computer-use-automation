@@ -86,6 +86,17 @@ type MemberProfile = {
   contact: string;
   phone: string;
   transactions: Array<[string, string, string]>;
+  loans?: LoanProfile[];
+};
+
+type LoanProfile = {
+  id: string;
+  type: string;
+  maskedNumber: string;
+  status: 'Open' | 'Closed';
+  openedOn: string;
+  principalCents: number;
+  dailyAccrualCents: number;
 };
 
 const MEMBER_PROFILES: Record<string, MemberProfile> = {
@@ -93,24 +104,26 @@ const MEMBER_PROFILES: Record<string, MemberProfile> = {
     name: 'Jordan Lee', since: '2011', balance: '$1,250.42', available: '$1,250.42',
     contact: '14 Elm St Apt 2, Riverton', phone: '(555) 014-2288',
     transactions: [
-      ['08-28', 'Dividend posting', '$0.41'],
-      ['08-21', 'Payroll deduction', '$150.00'],
-      ['08-15', 'ATM withdrawal ****4242', '-$60.00'],
-      ['08-08', 'Payroll deduction', '$150.00'],
-      ['08-02', 'Transfer to checking ****4310', '-$200.00'],
-      ['07-28', 'Payroll deduction', '$150.00'],
+      ['2026-09-10', 'Payroll deduction', '$150.00'],
+      ['2026-09-07', 'ATM withdrawal ****4242', '-$60.00'],
+      ['2026-09-03', 'Dividend posting', '$0.41'],
+      ['2026-08-28', 'Transfer to checking ****4310', '-$200.00'],
+      ['2026-08-21', 'Payroll deduction', '$150.00'],
+      ['2026-08-15', 'ATM withdrawal ****4242', '-$60.00'],
     ],
+    loans: [{ id: 'auto-6655', type: 'Auto Loan', maskedNumber: '****6655', status: 'Open', openedOn: '2025-04-15', principalCents: 1875000, dailyAccrualCents: 41 }],
   },
   '77777': {
     name: 'Casey Morgan', since: '2018', balance: '$843.17', available: '$843.17',
-    contact: '9 Foundry Rd, Riverton', phone: '(555) 019-3345',
+  contact: '9 Foundry Rd, Riverton', phone: '(555) 019-3345',
     transactions: [
-      ['08-27', 'Payroll deduction', '$120.00'],
-      ['08-19', 'Debit purchase — grocery', '-$84.20'],
-      ['08-11', 'Payroll deduction', '$120.00'],
-      ['08-03', 'ATM withdrawal ****7721', '-$40.00'],
-      ['07-28', 'Dividend posting', '$0.22'],
+      ['2026-09-09', 'Payroll deduction', '$120.00'],
+      ['2026-09-05', 'Debit purchase — grocery', '-$84.20'],
+      ['2026-08-27', 'Payroll deduction', '$120.00'],
+      ['2026-08-19', 'ATM withdrawal ****7721', '-$40.00'],
+      ['2026-08-11', 'Dividend posting', '$0.22'],
     ],
+    loans: [{ id: 'personal-7721', type: 'Personal Loan', maskedNumber: '****7721', status: 'Open', openedOn: '2024-11-02', principalCents: 960000, dailyAccrualCents: 23 }],
   },
 };
 
@@ -119,6 +132,120 @@ function memberFor(memberId: string): MemberProfile {
     name: 'Valued Member', since: '—', balance: '$0.00', available: '$0.00',
     contact: 'On file', phone: 'On file', transactions: [],
   };
+}
+
+function parseDateOnly(value: string | undefined): string | undefined {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
+  const date = new Date(value + 'T00:00:00Z');
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) return undefined;
+  return value;
+}
+
+function compareDateOnly(left: string, right: string): number {
+  return left.localeCompare(right);
+}
+
+function money(cents: number): string {
+  return '$' + (cents / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+function payoffAmount(loan: LoanProfile, asOfDate: string): string {
+  const days = Math.round((Date.parse(asOfDate + 'T00:00:00Z') - Date.parse(loan.openedOn + 'T00:00:00Z')) / 86_400_000);
+  return money(loan.principalCents + (days * loan.dailyAccrualCents));
+}
+
+function transactionHistoryContent(memberId: string, startDate = '', endDate = '', outcome?: string): string {
+  const id = escapeHtml(memberId);
+  const safeStart = escapeHtml(startDate);
+  const safeEnd = escapeHtml(endDate);
+  const profile = memberFor(memberId);
+  const validRange = parseDateOnly(startDate) && parseDateOnly(endDate) && compareDateOnly(startDate, endDate) <= 0;
+  const matches = validRange
+    ? profile.transactions.filter(([date]) => compareDateOnly(date, startDate) >= 0 && compareDateOnly(date, endDate) <= 0)
+    : [];
+  const rows = matches.map(([date, description, amount]) =>
+    '<tr><td>' + escapeHtml(date) + '</td><td>' + escapeHtml(description) + '</td><td>' + escapeHtml(amount) + '</td></tr>',
+  ).join('');
+  const result = outcome === 'INVALID_DATE_RANGE'
+    ? '<p class="error">INVALID_DATE_RANGE</p><p>Enter valid calendar dates with the start date on or before the end date.</p>'
+    : outcome === 'NO_TRANSACTIONS'
+      ? '<p class="outcome">NO_TRANSACTIONS</p><p>No posted transactions were found in the requested date range.</p>'
+      : '';
+  const table = outcome === 'NO_TRANSACTIONS' || (validRange && !outcome)
+    ? '<table class="grid" aria-label="Transaction results"><caption>Transaction results</caption><thead><tr><th>Date</th><th>Description</th><th>Amount</th></tr></thead><tbody>' +
+      (rows || '<tr><td colspan="3">No matching transactions</td></tr>') + '</tbody></table>'
+    : '';
+  return '<h1>Transaction History</h1>' +
+    '<p class="backlink"><a href="/servicing/member/' + id + '/accounts/savings">« Back to Savings Account</a> · <a href="/servicing">New Search</a></p>' +
+    '<p class="kv">Member ID: ' + id + ' · Share ID 01 — posted items.</p>' +
+    '<h2>Search posted transactions</h2>' +
+    '<form method="post" action="/servicing/member/' + id + '/accounts/savings/transactions/search">' +
+      '<table class="form-table"><tr><th><label for="start-date">Start Date</label></th><td><input id="start-date" name="startDate" type="date" value="' + safeStart + '" required></td></tr>' +
+      '<tr><th><label for="end-date">End Date</label></th><td><input id="end-date" name="endDate" type="date" value="' + safeEnd + '" required></td></tr></table>' +
+      '<button type="submit">Search Transactions</button></form>' +
+    (startDate || endDate ? result + table : '<p class="notice">Enter a start and end date, then select Search Transactions.</p>');
+}
+
+function loanFor(memberId: string, loanId: string): LoanProfile | undefined {
+  return memberFor(memberId).loans?.find((loan) => loan.id === loanId);
+}
+
+function loanAccountsContent(memberId: string): string {
+  const id = escapeHtml(memberId);
+  const loans = memberFor(memberId).loans ?? [];
+  const rows = loans.map((loan) =>
+    '<tr><td><a href="/servicing/member/' + id + '/accounts/loans/' + escapeHtml(loan.id) + '">' + escapeHtml(loan.type) + '</a></td><td>' +
+    escapeHtml(loan.maskedNumber) + '</td><td>' + escapeHtml(loan.status) + '</td><td><a href="/servicing/member/' + id + '/accounts/loans/' +
+    escapeHtml(loan.id) + '">Open</a></td></tr>',
+  ).join('');
+  return '<h1>Loan Accounts</h1>' +
+    '<p class="backlink"><a href="/servicing/member/' + id + '/accounts">« Back to Accounts</a> · <a href="/servicing">New Search</a></p>' +
+    '<p class="kv">Member ID: ' + id + '</p>' +
+    (loans.length
+      ? '<table class="grid" aria-label="Loan accounts"><caption>Loan accounts</caption><thead><tr><th>Account</th><th>Account No.</th><th>Status</th><th>Action</th></tr></thead><tbody>' + rows + '</tbody></table>'
+      : '<p class="outcome">NO_LOAN</p><p>No loan accounts are available for this member.</p>');
+}
+
+function loanDetailContent(memberId: string, loanId: string): string {
+  const id = escapeHtml(memberId);
+  const loan = loanFor(memberId, loanId);
+  if (!loan) {
+    return '<h1>Loan Account</h1><p class="backlink"><a href="/servicing/member/' + id + '/accounts/loans">« Back to Loan Accounts</a></p>' +
+      '<p class="outcome">NO_LOAN</p><p>No matching loan account was found.</p>';
+  }
+  const safeLoanId = escapeHtml(loan.id);
+  return '<h1>' + escapeHtml(loan.type) + '</h1>' +
+    '<p class="backlink"><a href="/servicing/member/' + id + '/accounts/loans">« Back to Loan Accounts</a> · <a href="/servicing">New Search</a></p>' +
+    '<p class="kv">Member ID: ' + id + '</p>' +
+    '<table class="grid" aria-label="Loan account detail"><caption>Loan account detail</caption>' +
+      '<tr><th>Loan Type</th><td>' + escapeHtml(loan.type) + '</td></tr><tr><th>Account No.</th><td>' + escapeHtml(loan.maskedNumber) + '</td></tr>' +
+      '<tr><th>Status</th><td>' + escapeHtml(loan.status) + '</td></tr><tr><th>Opened On</th><td>' + escapeHtml(loan.openedOn) + '</td></tr></table>' +
+    '<a class="button" href="/servicing/member/' + id + '/accounts/loans/' + safeLoanId + '/payoff-quote">Request Payoff Quote</a>';
+}
+
+function payoffQuoteContent(memberId: string, loanId: string, asOfDate = '', outcome?: string): string {
+  const id = escapeHtml(memberId);
+  const loan = loanFor(memberId, loanId);
+  if (!loan) return '<h1>Payoff Quote</h1><p class="outcome">NO_LOAN</p><p>No matching loan account was found.</p>';
+  const safeLoanId = escapeHtml(loan.id);
+  const safeDate = escapeHtml(asOfDate);
+  let result = '';
+  if (outcome === 'INVALID_AS_OF_DATE') {
+    result = '<p class="error">INVALID_AS_OF_DATE</p><p>Enter a valid calendar date in YYYY-MM-DD format.</p>';
+  } else if (outcome === 'UNSUPPORTED_AS_OF_DATE') {
+    result = '<p class="outcome">UNSUPPORTED_AS_OF_DATE</p><p>Quotes are available from ' + escapeHtml(loan.openedOn) + ' through 2026-12-31.</p>';
+  } else if (asOfDate) {
+    result = '<table class="grid" aria-label="Payoff quote result"><caption>Payoff quote review</caption><tr><th>As-of Date</th><td>' + safeDate +
+      '</td></tr><tr><th>Payoff Amount</th><td>' + payoffAmount(loan, asOfDate) + '</td></tr></table>' +
+      '<p class="notice">READ-ONLY QUOTE — no payment or account change was submitted.</p>';
+  }
+  return '<h1>Request Payoff Quote</h1>' +
+    '<p class="backlink"><a href="/servicing/member/' + id + '/accounts/loans/' + safeLoanId + '">« Back to ' + escapeHtml(loan.type) + '</a> · <a href="/servicing">New Search</a></p>' +
+    '<p class="kv">Member ID: ' + id + ' · Loan ' + safeLoanId + '</p>' +
+    '<form method="post" action="/servicing/member/' + id + '/accounts/loans/' + safeLoanId + '/payoff-quote">' +
+      '<table class="form-table"><tr><th><label for="as-of-date">As-of Date</label></th><td><input id="as-of-date" name="asOfDate" type="date" value="' + safeDate + '" required></td></tr></table>' +
+      '<button type="submit">Request Payoff Quote</button></form>' +
+    result;
 }
 
 function page(title: string, content: string, _opts: { breadcrumb?: string } = {}): string {
@@ -135,7 +262,7 @@ function page(title: string, content: string, _opts: { breadcrumb?: string } = {
     .banner table { width: 100%; max-width: 980px; margin: auto; border-collapse: collapse; }
     .banner td { padding: 10px 14px; color: #fff; vertical-align: middle; }
     .crest { width: 54px; height: 44px; color: #0f2a44; background: #d8b93a; font: bold 20px Georgia, serif; text-align: center; vertical-align: middle; border: 2px outset #fff; }
-    .banner h1 { margin: 0; font: bold 17px Verdana, Arial, sans-serif; letter-spacing: .02em; }
+    .banner h1 { margin: 0; color: #fff; font: bold 17px Verdana, Arial, sans-serif; letter-spacing: .02em; }
     .banner .sub { margin-top: 2px; color: #b9c9d8; font-size: 11px; }
     .banner .session { text-align: right; font-size: 11px; line-height: 1.6; white-space: nowrap; }
     .banner .session b { color: #ffd97a; }
@@ -306,8 +433,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     session.verified.add(memberId);
     return html(reply, 'Supervisor Verification', `
       <h1>Supervisor Verification</h1>
-      <p class="notice">Supervisor verification acknowledged for this session.</p>
-      <a class="button" href="/servicing/member/88888/summary">Continue to Member Summary</a>
+      <p class="notice">Supervisor verification acknowledged for this session. Acknowledged. Continue to Member Summary.</p>
+      <a class="button" href="/servicing/member/88888/summary">Member Summary</a>
     `);
   });
 
@@ -370,7 +497,40 @@ export async function buildApp(): Promise<FastifyInstance> {
           <tr><td>Share Certificate</td><td>****9871</td><td>Closed 2023</td><td>—</td></tr>
         </tbody>
       </table>
+      <table class="grid">
+        <caption>Loan accounts</caption>
+        <thead><tr><th>Account</th><th>Account No.</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody><tr><td><a href="/servicing/member/${id}/accounts/loans">Loan Accounts</a></td><td>Review account list</td><td>Available</td><td><a href="/servicing/member/${id}/accounts/loans">Open</a></td></tr></tbody>
+      </table>
     `, 'Member Search &gt; Member Summary &gt; Accounts');
+  });
+
+  app.get('/servicing/member/:memberId/accounts/loans', async (request, reply) => {
+    const { memberId } = request.params as { memberId: string };
+    return html(reply, 'Loan Accounts', loanAccountsContent(memberId), 'Member Search &gt; Member Summary &gt; Accounts &gt; Loan Accounts');
+  });
+
+  app.get('/servicing/member/:memberId/accounts/loans/:loanId', async (request, reply) => {
+    const { memberId, loanId } = request.params as { memberId: string; loanId: string };
+    return html(reply, 'Loan Account', loanDetailContent(memberId, loanId), 'Member Search &gt; Member Summary &gt; Accounts &gt; Loan Account');
+  });
+
+  app.get('/servicing/member/:memberId/accounts/loans/:loanId/payoff-quote', async (request, reply) => {
+    const { memberId, loanId } = request.params as { memberId: string; loanId: string };
+    return html(reply, 'Request Payoff Quote', payoffQuoteContent(memberId, loanId), 'Payoff Quote');
+  });
+
+  app.post('/servicing/member/:memberId/accounts/loans/:loanId/payoff-quote', async (request, reply) => {
+    const { memberId, loanId } = request.params as { memberId: string; loanId: string };
+    const body = request.body as { asOfDate?: string };
+    const asOfDate = body.asOfDate?.trim() ?? '';
+    const parsed = parseDateOnly(asOfDate);
+    const loan = loanFor(memberId, loanId);
+    let outcome: string | undefined;
+    if (!loan) outcome = 'NO_LOAN';
+    else if (!parsed) outcome = 'INVALID_AS_OF_DATE';
+    else if (compareDateOnly(parsed, loan.openedOn) < 0 || compareDateOnly(parsed, '2026-12-31') > 0) outcome = 'UNSUPPORTED_AS_OF_DATE';
+    return html(reply, 'Request Payoff Quote', payoffQuoteContent(memberId, loanId, asOfDate, outcome), 'Payoff Quote');
   });
 
   app.get('/servicing/member/:memberId/accounts/savings', async (request, reply) => {
@@ -401,11 +561,30 @@ export async function buildApp(): Promise<FastifyInstance> {
       <h1>Transaction History</h1>
       <p class="backlink"><a href="/servicing/member/${id}/accounts/savings">« Back to Savings Account</a> · <a href="/servicing">New Search</a></p>
       <p class="kv">Member ID: ${id} · Share ID 01 — posted items.</p>
+      <h2>Search posted transactions</h2>
+      <form method="post" action="/servicing/member/${id}/accounts/savings/transactions/search">
+        <table class="form-table"><tr><th><label for="start-date">Start Date</label></th><td><input id="start-date" name="startDate" type="date" required></td></tr>
+        <tr><th><label for="end-date">End Date</label></th><td><input id="end-date" name="endDate" type="date" required></td></tr></table>
+        <button type="submit">Search Transactions</button>
+      </form>
       <table class="grid"><caption>Posted transactions</caption>
         <thead><tr><th>Date</th><th>Description</th><th>Amount</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     `, 'Transaction History');
+  });
+
+  app.post('/servicing/member/:memberId/accounts/savings/transactions/search', async (request, reply) => {
+    const { memberId } = request.params as { memberId: string };
+    const body = request.body as { startDate?: string; endDate?: string };
+    const startDate = body.startDate?.trim() ?? '';
+    const endDate = body.endDate?.trim() ?? '';
+    const start = parseDateOnly(startDate);
+    const end = parseDateOnly(endDate);
+    let outcome: string | undefined;
+    if (!start || !end || compareDateOnly(startDate, endDate) > 0) outcome = 'INVALID_DATE_RANGE';
+    else if (!memberFor(memberId).transactions.some(([date]) => compareDateOnly(date, startDate) >= 0 && compareDateOnly(date, endDate) <= 0)) outcome = 'NO_TRANSACTIONS';
+    return html(reply, 'Transaction History', transactionHistoryContent(memberId, startDate, endDate, outcome), 'Transaction History');
   });
 
   app.get('/servicing/member/:memberId/accounts/savings/balance', async (request, reply) => {

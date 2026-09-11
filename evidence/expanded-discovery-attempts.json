@@ -1,0 +1,76 @@
+{
+  "generatedAt": "2026-09-11",
+  "sourceMode": "live",
+  "providerBaseUrl": "https://openrouter.ai/api/v1",
+  "attempts": [
+    {
+      "family": "transaction_history",
+      "runId": "run-fad20a45-d21e-4d01-a5b2-3c6cfe92de6e",
+      "status": "needs_human",
+      "llmCalls": 16,
+      "errorCode": "DISCOVERY_GUARD",
+      "detail": "The model drifted into unrelated target navigation and reached the bounded progress guard before extracting transactions.",
+      "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "actionMode": "json"
+    },
+    {
+      "family": "transaction_history",
+      "runId": "run-bd8d181d-e40b-48d5-97af-9dc0c8437d82",
+      "status": "failed",
+      "llmCalls": 2,
+      "errorCode": "MODEL_ACTION_INVALID",
+      "detail": "The same model route in tool mode returned no single tool call.",
+      "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "actionMode": "tool"
+    },
+    {
+      "family": "transaction_history",
+      "runId": "run-ad58df70-a82f-4bac-8ef9-db72fae30bc3",
+      "status": "failed",
+      "llmCalls": 12,
+      "errorCode": "MODEL_ACTION_INVALID",
+      "detail": "The free JSON route returned malformed actions during bounded repair.",
+      "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "actionMode": "json"
+    },
+    {
+      "family": "loan_payoff",
+      "runId": "run-7b5c3709-0978-4e43-83b5-ecbd339afc41",
+      "status": "failed",
+      "llmCalls": 3,
+      "errorCode": "MODEL_ACTION_INVALID",
+      "detail": "The free JSON route returned an action without the required fields.",
+      "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "actionMode": "json"
+    },
+    {
+      "family": "loan_payoff",
+      "runId": "run-6a78c44b-aa5f-4cce-8bce-3145b526d63b",
+      "status": "failed",
+      "llmCalls": 8,
+      "errorCode": "MODEL_ACTION_INVALID",
+      "detail": "The model reached the real loan accounts path, then the provider request timed out before extraction.",
+      "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "actionMode": "json"
+    },
+    {
+      "family": "transaction_history",
+      "runId": "run-a435053a-1309-455f-b406-d836f347f516",
+      "status": "failed",
+      "llmCalls": 1,
+      "errorCode": "MODEL_ACTION_INVALID",
+      "detail": "The standard Nano Omni route was unavailable and returned HTTP 404.",
+      "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "actionMode": "json"
+    }
+  ],
+  "successfulBaseline": {
+    "family": "savings_balance",
+    "runId": "run-90b43b1c-11fc-42cc-82c9-4d63a3808a81",
+    "status": "succeeded",
+    "result": "1250.42",
+    "llmCalls": 0,
+    "mode": "replay"
+  },
+  "privacy": "Run identifiers and model metadata only; no member identifiers, inputs, screenshots, or provider secrets are stored here."
+}

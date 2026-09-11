@@ -44,6 +44,36 @@ describe('OpenAI-compatible model adapter', () => {
     expect(JSON.stringify(body?.response_format)).toContain('requestHuman');
   });
 
+  it('sends compact successful action history without replaying sensitive fill values', async () => {
+    let body: Record<string, unknown> | undefined;
+    const model = new OpenAICompatibleModel({
+      baseUrl: 'https://provider.example/v1', apiKey: 'secret-key', model: 'nano-omni', responseFormat: 'json_object',
+      fetch: async (_url, init) => {
+        body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(JSON.stringify({ choices: [{ message: { content: '{"kind":"finish","id":"done","outputs":[],"checkpoint":"ready"}' } }] }), { status: 200 });
+      }
+    });
+    await model.decide(
+      { url: 'http://localhost:3001', title: 'Demo', framePath: [], controls: [], visibleText: 'ready', dialogs: [], stateFingerprint: 'x' },
+      { objective: 'lookup_member_savings_balance', entities: [], requestedOutputs: [], risk: 'read_only', userGoal: 'do task' },
+      [
+        { runId: 'run', stepId: 'fill-member', kind: 'action', action: { kind: 'fill', id: 'fill-member', value: '12345' }, resolvedControl: { role: 'textbox', name: 'Member ID', label: 'Member ID' }, outcome: 'succeeded', evidence: [] },
+        { runId: 'run', stepId: 'extract-balance', kind: 'action', action: { kind: 'extract', id: 'extract-balance' }, resolvedControl: { role: 'cell', name: '$1,250.42', relativeText: 'Current Balance' }, outcome: 'succeeded', details: { output: 'current_savings_balance' }, evidence: [] },
+        { runId: 'run', stepId: 'failed-global-nav', kind: 'action', action: { kind: 'click', id: 'teller-totals' }, resolvedControl: { role: 'link', name: 'Teller Totals' }, outcome: 'failed:TARGET_MISSING', evidence: [] }
+      ]
+    );
+    const request = JSON.stringify(body);
+    const messages = body?.messages as Array<{ role: string; content: unknown }>;
+    const userContent = messages.find((message) => message.role === 'user')?.content;
+    const userText = Array.isArray(userContent) ? String((userContent[0] as { text?: unknown })?.text ?? '') : String(userContent ?? '');
+    expect(userText).toContain('"kind":"fill"');
+    expect(userText).toContain('"label":"Member ID"');
+    expect(userText).toContain('current_savings_balance');
+    expect(userText).not.toContain('12345');
+    expect(userText).not.toContain('Teller Totals');
+    expect(request).not.toContain('secret');
+  });
+
   it('uses a required strict action tool and parses exactly one tool call without exposing the key', async () => {
     let body: Record<string, unknown> | undefined;
     const model = new OpenAICompatibleModel({

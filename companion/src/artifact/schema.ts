@@ -24,6 +24,7 @@ const targetSchema = z.object({
 });
 
 const inputReferenceSchema = z.object({ fromInput: z.string().min(1) });
+const inputSensitivitySchema = z.enum(['member_identifier', 'date']);
 export const actionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('click'), id: z.string(), target: targetSchema, risk: riskClassSchema.default('READ_ONLY') }),
   z.object({ kind: z.literal('fill'), id: z.string(), target: targetSchema, value: z.union([z.string(), inputReferenceSchema]), risk: riskClassSchema.default('READ_ONLY') }),
@@ -44,8 +45,8 @@ export const capabilitySchema = z.object({
     intent: z.string(), requiredConcepts: z.array(z.string()), phrases: z.array(z.string())
   }),
   inputs: z.array(z.object({
-    name: z.string(), type: z.literal('string'), sensitivity: z.literal('member_identifier'),
-    validation: z.object({ minLength: z.number().int().nonnegative(), maxLength: z.number().int().positive() })
+    name: z.string(), type: z.literal('string'), sensitivity: inputSensitivitySchema,
+    validation: z.object({ minLength: z.number().int().nonnegative(), maxLength: z.number().int().positive(), format: z.enum(['iso_date']).optional() })
   })),
   outputs: z.array(z.object({ name: z.string(), type: z.enum(['money', 'string']), currency: z.string().optional() })),
   businessOutcomes: z.array(z.string()),
