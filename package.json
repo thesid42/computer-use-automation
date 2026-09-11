@@ -1,0 +1,14 @@
+{
+  "name": "computer-use-automation-system",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone legacy target and decoupled computer-use automation companion",
+  "scripts": {
+    "install:all": "npm install --prefix legacy-demo && npm install --prefix companion",
+    "legacy": "npm start --prefix legacy-demo",
+    "companion": "npm run companion --prefix companion",
+    "test": "npm test --prefix legacy-demo && npm test --prefix companion",
+    "build": "npm run build --prefix legacy-demo && npm run build --prefix companion",
+    "typecheck": "npm run build --prefix legacy-demo && npm run typecheck --prefix companion"
+  }
+}

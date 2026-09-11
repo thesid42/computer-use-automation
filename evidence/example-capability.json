@@ -1,0 +1,227 @@
+{
+  "schemaVersion": 1,
+  "capabilityId": "member.lookup-savings-balance",
+  "version": "1.0.0",
+  "title": "Look up a member's savings balance",
+  "intentSignature": {
+    "intent": "lookup_member_savings_balance",
+    "requiredConcepts": [
+      "member",
+      "savings",
+      "balance"
+    ],
+    "phrases": [
+      "look up member {member_id} savings balance",
+      "savings balance for member {member_id}"
+    ]
+  },
+  "inputs": [
+    {
+      "name": "member_id",
+      "type": "string",
+      "sensitivity": "member_identifier",
+      "validation": {
+        "minLength": 1,
+        "maxLength": 64
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "name": "current_savings_balance",
+      "type": "money",
+      "currency": "USD"
+    }
+  ],
+  "businessOutcomes": [
+    "MEMBER_NOT_FOUND",
+    "PERMISSION_DENIED",
+    "ACCOUNT_NOT_FOUND"
+  ],
+  "risk": "READ_ONLY",
+  "policyProfile": {
+    "allowedOrigins": [
+      "http://localhost:3001",
+      "http://127.0.0.1:3001"
+    ],
+    "allowedRoutes": [
+      "/",
+      "/servicing*"
+    ],
+    "allowedActionKinds": [
+      "click",
+      "fill",
+      "selectOption",
+      "wait",
+      "extract",
+      "finish",
+      "requestHuman"
+    ],
+    "maxRisk": "READ_ONLY",
+    "controlOwner": "automation",
+    "blockedTargetNamePatterns": [
+      "Post Fee"
+    ]
+  },
+  "actions": [
+    {
+      "kind": "fill",
+      "id": "fill-member-id",
+      "target": {
+        "strategies": [
+          {
+            "role": "textbox",
+            "name": "Member ID",
+            "label": "Member ID",
+            "framePath": [
+              "title:Member Servicing Area"
+            ],
+            "frameUrl": "http://127.0.0.1:3001/servicing"
+          }
+        ]
+      },
+      "value": {
+        "fromInput": "member_id"
+      },
+      "risk": "READ_ONLY"
+    },
+    {
+      "kind": "click",
+      "id": "click-search",
+      "target": {
+        "strategies": [
+          {
+            "role": "button",
+            "name": "Search",
+            "text": "Search",
+            "framePath": [
+              "title:Member Servicing Area"
+            ],
+            "frameUrl": "http://127.0.0.1:3001/servicing"
+          }
+        ]
+      },
+      "risk": "READ_ONLY"
+    },
+    {
+      "kind": "click",
+      "id": "click-member-summary",
+      "target": {
+        "strategies": [
+          {
+            "role": "link",
+            "name": "Member Summary",
+            "text": "Member Summary",
+            "framePath": [
+              "title:Member Servicing Area"
+            ],
+            "frameUrl": "http://127.0.0.1:3001/servicing/member-search"
+          }
+        ]
+      },
+      "risk": "READ_ONLY"
+    },
+    {
+      "kind": "click",
+      "id": "click-accounts",
+      "target": {
+        "strategies": [
+          {
+            "role": "link",
+            "name": "Accounts",
+            "text": "Accounts",
+            "framePath": [
+              "title:Member Servicing Area"
+            ],
+            "frameUrl": "http://127.0.0.1:3001/servicing/member/[REDACTED]/summary"
+          }
+        ]
+      },
+      "risk": "READ_ONLY"
+    },
+    {
+      "kind": "click",
+      "id": "click-savings-account",
+      "target": {
+        "strategies": [
+          {
+            "role": "link",
+            "name": "Savings Account",
+            "text": "Savings Account",
+            "framePath": [
+              "title:Member Servicing Area"
+            ],
+            "frameUrl": "http://127.0.0.1:3001/servicing/member/[REDACTED]/accounts"
+          }
+        ]
+      },
+      "risk": "READ_ONLY"
+    },
+    {
+      "kind": "click",
+      "id": "click-balance-details",
+      "target": {
+        "strategies": [
+          {
+            "role": "link",
+            "name": "Balance Details",
+            "text": "Balance Details",
+            "framePath": [
+              "title:Member Servicing Area"
+            ],
+            "frameUrl": "http://127.0.0.1:3001/servicing/member/[REDACTED]/accounts/savings"
+          }
+        ]
+      },
+      "risk": "READ_ONLY"
+    },
+    {
+      "kind": "extract",
+      "id": "extract-balance",
+      "target": {
+        "strategies": [
+          {
+            "relativeText": "Current Balance",
+            "framePath": [
+              "title:Member Servicing Area"
+            ],
+            "frameUrl": "http://127.0.0.1:3001/servicing/member/[REDACTED]/accounts/savings/balance"
+          }
+        ]
+      },
+      "output": "current_savings_balance",
+      "parseAs": "money"
+    },
+    {
+      "kind": "finish",
+      "id": "finish-balance",
+      "outputs": [
+        "current_savings_balance"
+      ],
+      "checkpoint": "Balance Details"
+    }
+  ],
+  "preconditions": [
+    "target is on an allowed origin",
+    "automation owns the session"
+  ],
+  "postconditions": [
+    "Balance Details"
+  ],
+  "waits": {
+    "defaultTimeoutMs": 10000,
+    "retries": 1
+  },
+  "extraction": [
+    {
+      "output": "current_savings_balance",
+      "actionId": "extract-balance",
+      "parseAs": "money"
+    }
+  ],
+  "finalCheckpoint": "Balance Details",
+  "compatibility": {
+    "applicationFamily": "legacy-member-servicing",
+    "targetProfileId": "demo-app"
+  }
+}

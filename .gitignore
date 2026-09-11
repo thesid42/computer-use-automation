@@ -1,0 +1,17 @@
+**/node_modules/
+**/dist/
+**/coverage/
+**/playwright-report/
+**/test-results/
+**/.env
+.env
+*.local
+*.log
+.DS_Store
+Thumbs.db
+tmp/
+Assignment*.pdf
+companion/evidence/
+companion/artifacts/
+companion/runtime/
+companion/tmp-*.ts

@@ -1,0 +1,22 @@
+{
+  "runId": "run-2f70f92f-3b06-4155-82df-73c126bc4d37",
+  "id": "run-2f70f92f-3b06-4155-82df-73c126bc4d37",
+  "goal": "Savings balance for member [REDACTED]",
+  "status": "business_outcome",
+  "result": {
+    "status": "business_outcome",
+    "code": "MEMBER_NOT_FOUND"
+  },
+  "capabilityId": "member.lookup-savings-balance",
+  "llmCalls": 0,
+  "mode": "replay",
+  "executionMode": "live",
+  "providerEndpoint": "https://openrouter.ai/api/v1",
+  "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "generationSettings": {
+    "temperature": 0,
+    "timeoutMs": 60000,
+    "actionMode": "json"
+  },
+  "createdAt": "2026-09-10T22:37:17.221Z"
+}

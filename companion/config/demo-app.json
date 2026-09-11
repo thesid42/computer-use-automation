@@ -1,0 +1,7 @@
+{
+  "id": "demo-app",
+  "applicationFamily": "legacy-member-servicing",
+  "url": "http://localhost:3001",
+  "allowedOrigins": ["http://localhost:3001", "http://127.0.0.1:3001"],
+  "headless": false
+}
