@@ -28,6 +28,7 @@ The companion and target share no source code or data. The companion reaches the
 
 - [Detailed design](docs/DESIGN.md)
 - [MVP acceptance checklist](docs/MVP-ACCEPTANCE.md)
+- [Workflows reserved for your next test](docs/FUTURE-WORKFLOW-TESTS.md)
 - [Required short report](REPORT.md)
 - [Target workflow reference](legacy-demo/README.md)
 

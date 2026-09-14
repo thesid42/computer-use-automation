@@ -39,11 +39,15 @@ All records are synthetic:
 
 ## Supported UI workflows
 
-The target exposes three read-only workflow families for the companion to learn:
+The target exposes these read-only workflows for the companion to learn. Available screens are not preloaded capabilities; see [workflows reserved for future discovery tests](../docs/FUTURE-WORKFLOW-TESTS.md).
 
 1. Savings balance: member search → Member Summary → Accounts → Savings Account → Balance Details → Current Balance.
 2. Transaction search: follow the Savings Account page's Transaction History link, enter Start Date and End Date, then select Search Transactions. The POST form filters the synthetic ledger inclusively. The result table is named Transaction results and contains Date, Description, and Amount. Reversed or malformed ranges return INVALID_DATE_RANGE. A valid range with no matching rows returns NO_TRANSACTIONS.
 3. Loan payoff quote: from Accounts select Loan Accounts, open the Auto Loan or Personal Loan row, select Request Payoff Quote, enter As-of Date, and submit Request Payoff Quote. The result is a read-only Payoff quote review with As-of Date and Payoff Amount. Dates before the loan opened or after 2026-12-31 return UNSUPPORTED_AS_OF_DATE; malformed dates return INVALID_AS_OF_DATE; a member without a loan returns NO_LOAN. No payment or account change can be submitted.
+4. Member and account overview: use Member & Account Overview from the workstation menu, search by member ID or exact name, and read member details and available accounts.
+5. Service requests: open the global queue and filter by member/name and status, or use Member Service Requests from a member summary to retain that member's filter.
+6. Branch directory: search by branch name or city and read the matching addresses, hours, and phone numbers.
+7. Teller totals: read the drawer totals and transaction counts without a member input.
 
 Useful goal examples:
 
@@ -61,7 +65,10 @@ For the normal quote example, the deterministic synthetic result is Payoff Amoun
 | --- | --- | --- |
 | Member Search | /servicing | Member ID, Search |
 | Search Results | POST /servicing/member-search | Member Summary, Retry Search, or a named outcome |
-| Member Summary | /servicing/member/:memberId/summary | Accounts |
+| Member Summary | /servicing/member/:memberId/summary | Accounts, Member Service Requests |
+| Member & Account Overview | /servicing/overview | Member ID or Name, Open Overview |
+| Service Requests | /servicing/service-requests | Member ID or Name (optional), Status, Filter Requests |
+| Branch Directory | /servicing/branch-directory | City or branch, Find Branches |
 | Accounts | /servicing/member/:memberId/accounts | Savings Account, Loan Accounts, Post Fee |
 | Savings Account | /servicing/member/:memberId/accounts/savings | Balance Details, Transaction History |
 | Transaction History | /servicing/member/:memberId/accounts/savings/transactions | Start Date, End Date, Search Transactions |

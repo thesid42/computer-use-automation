@@ -66,7 +66,12 @@ function phrasePattern(phrase: string): { pattern: RegExp; names: string[] } {
     if (index < tokens.length - 1) source += '\\s+';
   });
   source += '$';
-  return { pattern: new RegExp(source, 'i'), names };
+  // Capture indices are required here because searching for a normalized
+  // capture with indexOf can select the same text from a literal prefix. For
+  // example, `Find {query}` matched against `Find FIND` previously returned
+  // `Find` as the query. The `d` flag is supported by the Node runtimes this
+  // service targets and gives us the exact group span.
+  return { pattern: new RegExp(source, 'id'), names };
 }
 
 function hasConcept(goal: string, concept: string): boolean {
@@ -78,20 +83,14 @@ function hasConcept(goal: string, concept: string): boolean {
 
 function originalCapture(goal: string, normalized: NormalizedGoal, match: RegExpExecArray, capture: string, offset: number): string | undefined {
   if (!capture) return undefined;
-  const matchedText = match[0] ?? '';
-  let cursor = 0;
-  for (let index = 0; index < offset; index += 1) {
-    const previous = match[index + 1] ?? '';
-    const previousOffset = matchedText.indexOf(previous, cursor);
-    if (previousOffset < 0) return undefined;
-    cursor = previousOffset + previous.length;
-  }
-  const captureOffset = matchedText.indexOf(capture, cursor);
-  if (captureOffset < 0) return undefined;
-  const start = match.index + captureOffset;
-  const end = start + capture.length;
-  const sourceStart = normalized.sourceMap[start];
-  const sourceEnd = normalized.sourceMap[end - 1];
+  const indexed = match as RegExpExecArray & { indices?: Array<[number, number] | undefined> };
+  const range = indexed.indices?.[offset + 1];
+  // Node 22 is an explicit runtime requirement, so do not fall back to an
+  // indexOf-based approximation: it can silently bind a literal occurrence
+  // instead of the actual capture and leak the wrong input into replay.
+  if (!range) return undefined;
+  const sourceStart = normalized.sourceMap[range[0]];
+  const sourceEnd = normalized.sourceMap[range[1] - 1];
   if (sourceStart === undefined || sourceEnd === undefined) return undefined;
   let value = goal.slice(sourceStart, sourceEnd + 1).trim();
   // Quotes are syntax around a value, not part of the reusable input. Keep

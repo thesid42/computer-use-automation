@@ -42,6 +42,17 @@ describe('deterministic capability matching', () => {
     expect(intent.requiredConcepts).not.toContain('new');
     expect(intent.requiredConcepts).not.toContain('york');
   });
+
+  it('preserves the exact slot occurrence when it repeats a literal token', () => {
+    const lookup = {
+      intent: 'lookup_item',
+      requiredConcepts: ['find'],
+      phrases: ['Find {query}']
+    };
+    expect(new CapabilityMatcher([lookup]).match('Find FIND')).toEqual({
+      kind: 'match', capability: lookup, slots: { query: 'FIND' }
+    });
+  });
 });
 
 describe('capability artifacts', () => {
