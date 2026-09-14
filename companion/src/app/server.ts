@@ -5,7 +5,7 @@ import { capabilitySchema, type CapabilityArtifact } from '../artifact/schema.js
 import { DiscoveryRunner, type DiscoveryModel } from '../discovery/runner.js';
 import { InMemoryRunStore, type RunRecord, type WorkflowRecord } from '../domain/store.js';
 import { ControlLease } from '../handoff/lease.js';
-import { DeterministicGoalInterpreter } from '../goal/interpret.js';
+import { DeterministicGoalInterpreter, missingGoalInput, type ProvisionalIntent } from '../goal/interpret.js';
 import { CapabilityMatcher } from '../goal/match.js';
 import { OpenAICompatibleModel, DEFAULT_LLM_MODEL, normalizeLLMTimeoutMs } from '../llm/client.js';
 import { PolicyGate } from '../policy/gate.js';
@@ -32,7 +32,13 @@ function discoveryElapsedLimit(value: unknown): number {
   return Math.min(600_000, Math.max(30_000, Math.round(parsed)));
 }
 
-type RunReply = { runId: string; llmCalls: number; mode: 'discovery' | 'replay' | 'clarification' };
+type RunReply = { runId: string; llmCalls: number; intentModelCalls?: number; mode: 'discovery' | 'replay' | 'clarification' };
+
+type IntentModel = {
+  interpretGoal(goal: string, context?: unknown): Promise<ProvisionalIntent | { kind: 'needs_input'; message: string; missing?: string }>;
+};
+
+type PendingConversation = { goal: string; createdAt: string; workflowId?: string };
 
 function defaultOfflineModel(): DiscoveryModel {
   const member = { kind: 'fill' as const, id: 'enter-member-id', target: { strategies: [{ label: 'Member ID' }] }, value: { fromInput: 'member_id' }, risk: 'READ_ONLY' as const };
@@ -72,6 +78,8 @@ export async function createCompanion(options: CompanionOptions = {}): Promise<F
   const discoveryRunners = new Map<string, DiscoveryRunner>();
   const replayRunners = new Map<string, ReplayRunner>();
   const llmCallCounts = new Map<string, number>();
+  const intentModelCallCounts = new Map<string, number>();
+  const pendingConversations = new Map<string, PendingConversation>();
   const persistTails = new Map<string, Promise<void>>();
   const humanSinkTails = new Map<string, Promise<void>>();
   // The library is the source of truth. `learned` is retained as the legacy
@@ -94,19 +102,25 @@ export async function createCompanion(options: CompanionOptions = {}): Promise<F
   const persistenceEnabled = Boolean(options.runtimeDir || options.storageRoot || (!runningTests && (options.offline === true || (!options.surface && !options.discoveryModel))));
   const target: TargetProfile = { id: 'demo-app', applicationFamily: 'legacy-member-servicing', url: options.targetUrl ?? process.env.TARGET_URL ?? 'http://localhost:3001', headless: options.offline ?? process.env.HEADLESS === '1' };
   const surface: SurfaceAdapter = options.surface ?? (options.offline ? new ScriptedDemoSurfaceAdapter({ evidenceRoot }) : new PlaywrightSurfaceAdapter({ evidenceRoot }));
-  const providerEndpoint = process.env.LLM_BASE_URL ?? 'https://integrate.api.nvidia.com/v1';
+  const defaultProviderEndpoint = 'https://openrouter.ai/api/v1';
+  const providerEndpoint = process.env.LLM_BASE_URL ?? defaultProviderEndpoint;
   const modelId = process.env.LLM_MODEL ?? DEFAULT_LLM_MODEL;
   const llmTimeoutMs = normalizeLLMTimeoutMs(process.env.LLM_TIMEOUT_MS === undefined ? undefined : Number(process.env.LLM_TIMEOUT_MS));
-  const llmActionMode = process.env.LLM_ACTION_MODE === 'tool' ? 'tool' : 'json';
+  const llmActionMode = process.env.LLM_ACTION_MODE === 'json' ? 'json' : 'tool';
+  const observationMode = process.env.LLM_OBSERVATION_MODE === 'multimodal' ? 'multimodal' : 'accessibility';
   const discoveryMaxElapsedMs = discoveryElapsedLimit(process.env.DISCOVERY_MAX_ELAPSED_MS);
   const apiKey = process.env.LLM_API_KEY ?? (providerEndpoint === 'https://integrate.api.nvidia.com/v1' ? process.env.NVIDIA_API_KEY : undefined) ?? '';
-  // NVIDIA's vision endpoint has been observed to return a scalar content value
-  // when strict JSON Schema mode is combined with an image. Keep the typed
-  // action contract in the prompt, but use the provider's more reliable JSON
-  // object mode for live discovery. Tests can still exercise strict schema mode
-  // directly through OpenAICompatibleModel's default.
-  const liveResponseFormat = process.env.LLM_RESPONSE_FORMAT === 'json_schema' ? 'json_schema' : 'json_object';
-  const model = options.discoveryModel ?? (options.offline ? defaultOfflineModel() : new OpenAICompatibleModel({ baseUrl: providerEndpoint, apiKey, model: modelId, temperature: 0, timeoutMs: llmTimeoutMs, actionMode: llmActionMode, responseFormat: liveResponseFormat }));
+  // OpenRouter's free Ling endpoint is configured for tool calls by default and
+  // does not need a response_format. Explicit JSON modes remain available for
+  // providers that require them; `json` is the OpenAI-compatible JSON-object
+  // mode.
+  const responseFormat = process.env.LLM_RESPONSE_FORMAT;
+  const liveResponseFormat = responseFormat === 'json_schema'
+    ? 'json_schema'
+    : responseFormat === 'json' || responseFormat === 'json_object'
+      ? 'json_object'
+      : 'none';
+  const model = options.discoveryModel ?? (options.offline ? defaultOfflineModel() : new OpenAICompatibleModel({ baseUrl: providerEndpoint, apiKey, model: modelId, temperature: 0, timeoutMs: llmTimeoutMs, actionMode: llmActionMode, responseFormat: liveResponseFormat, observationMode }));
   // Scripted models and offline mode never advertise genuine provider readiness.
   const discoveryConfigured = executionMode === 'live' && Boolean(apiKey && providerEndpoint && modelId);
   const policy = new PolicyGate({ allowedOrigins: [new URL(target.url).origin], allowedRoutes: ['/', '/servicing*'], allowedActionKinds: ['click', 'fill', 'selectOption', 'wait', 'extract', 'finish', 'requestHuman'], maxRisk: 'READ_ONLY', controlOwner: 'automation', blockedTargetNamePatterns: ['Post Fee'] });
@@ -195,6 +209,7 @@ export async function createCompanion(options: CompanionOptions = {}): Promise<F
             ...(summary.capabilityId ? { capabilityId: summary.capabilityId } : {}),
             ...(inferredWorkflowId ? { workflowId: inferredWorkflowId } : {}),
             ...(summary.llmCalls !== undefined ? { llmCalls: summary.llmCalls } : {}),
+            ...(summary.intentModelCalls !== undefined ? { intentModelCalls: summary.intentModelCalls } : {}),
             ...(summary.mode ? { mode: summary.mode } : {}), ...(summary.executionMode ? { executionMode: summary.executionMode } : {}), ...(summary.providerEndpoint ? { providerEndpoint: summary.providerEndpoint } : {}), ...(summary.modelId ? { modelId: summary.modelId } : {}), ...(summary.generationSettings ? { generationSettings: summary.generationSettings } : {}), createdAt: summary.createdAt
           } as import('../domain/store.js').RunRecord);
         } catch { /* Ignore non-run evidence directories and partial writes. */ }
@@ -213,6 +228,8 @@ export async function createCompanion(options: CompanionOptions = {}): Promise<F
     discoveryRunners.clear();
     replayRunners.clear();
     leases.clear();
+    intentModelCallCounts.clear();
+    pendingConversations.clear();
   });
 
   async function installHumanSink(runId: string, session: SessionHandle, beforePath: string): Promise<void> {
@@ -264,12 +281,13 @@ export async function createCompanion(options: CompanionOptions = {}): Promise<F
     const run = store.getRun(runId);
     if (!run || !['succeeded', 'business_outcome', 'failed', 'aborted'].includes(run.status)) return;
     const events = run.events.map((event) => redact(event));
-    const summary = redact({ runId: run.id, id: run.id, goal: run.goal, status: run.status, result: run.result, capabilityId: run.capabilityId, workflowId: run.workflowId, llmCalls: run.llmCalls, mode: run.mode, executionMode: run.executionMode, providerEndpoint: run.providerEndpoint, modelId: run.modelId, generationSettings: run.generationSettings, createdAt: run.createdAt }) as Record<string, unknown>;
+    const summary = redact({ runId: run.id, id: run.id, goal: run.goal, status: run.status, result: run.result, capabilityId: run.capabilityId, workflowId: run.workflowId, llmCalls: run.llmCalls, intentModelCalls: run.intentModelCalls, mode: run.mode, executionMode: run.executionMode, providerEndpoint: run.providerEndpoint, modelId: run.modelId, generationSettings: run.generationSettings, createdAt: run.createdAt }) as Record<string, unknown>;
     // Durable handles and timestamps are metadata needed to restore/poll a run.
     summary.id = run.id;
     summary.runId = run.id;
     summary.createdAt = run.createdAt;
     if (run.workflowId) summary.workflowId = run.workflowId;
+    if (run.intentModelCalls !== undefined) summary.intentModelCalls = run.intentModelCalls;
     if (run.result?.status === 'succeeded' && summary.result && typeof summary.result === 'object') {
       const persistedResult = summary.result as Record<string, unknown>;
       const persistedOutputs = persistedResult.outputs;
@@ -344,7 +362,7 @@ export async function createCompanion(options: CompanionOptions = {}): Promise<F
     if (!run) throw new Error('run_not_found');
     const message = error instanceof Error ? error.message : String(error);
     const result: RunResult = { status: 'failed', error: { code: 'UNEXPECTED_FAILURE', message } };
-    store.updateRun(runId, { status: 'failed', result, llmCalls: llmCallCounts.get(runId) ?? run.llmCalls ?? 0 });
+    store.updateRun(runId, { status: 'failed', result, llmCalls: llmCallCounts.get(runId) ?? run.llmCalls ?? 0, intentModelCalls: intentModelCallCounts.get(runId) ?? run.intentModelCalls ?? 0 });
     appendResultEvent(store, runId, result, llmCallCounts.get(runId) ?? run.llmCalls ?? 0);
     await persistRun(runId).catch(() => undefined);
     const session = sessions.get(runId);
@@ -355,7 +373,9 @@ export async function createCompanion(options: CompanionOptions = {}): Promise<F
     replayRunners.delete(runId);
     leases.delete(runId);
     llmCallCounts.delete(runId);
-    return { runId, llmCalls: run.llmCalls ?? 0, mode: run.mode ?? 'clarification' };
+    const intentModelCalls = run.intentModelCalls ?? intentModelCallCounts.get(runId) ?? 0;
+    intentModelCallCounts.delete(runId);
+    return { runId, llmCalls: run.llmCalls ?? 0, intentModelCalls, mode: run.mode ?? 'clarification' };
   }
 
   function publicRun(run: import('../domain/store.js').RunRecord): Record<string, unknown> {
@@ -365,6 +385,7 @@ export async function createCompanion(options: CompanionOptions = {}): Promise<F
     if (run.sessionId) safe.sessionId = run.sessionId;
     if (run.interventionId) safe.interventionId = run.interventionId;
     if (run.workflowId) safe.workflowId = run.workflowId;
+    if (run.intentModelCalls !== undefined) safe.intentModelCalls = run.intentModelCalls;
     if (run.result?.status === 'succeeded' && safe.result && typeof safe.result === 'object') {
       const safeResult = safe.result as Record<string, unknown>;
       const safeOutputs = safeResult.outputs;
@@ -408,21 +429,40 @@ export async function createCompanion(options: CompanionOptions = {}): Promise<F
     };
   }
 
-  function matchWorkflows(candidates: WorkflowRecord[], goal: string, objective?: string):
+  function matchWorkflows(candidates: WorkflowRecord[], goal: string, intent?: ProvisionalIntent):
     | { kind: 'match'; workflow: WorkflowRecord; slots: Record<string, string> }
     | { kind: 'ambiguous' }
     | { kind: 'clarification'; message: string }
     | { kind: 'miss' } {
-    const familyCandidates = objective ? candidates.filter((workflow) => workflow.artifact.intentSignature.intent === objective) : candidates;
-    if (familyCandidates.length === 0) return { kind: 'miss' };
-    const signatures = familyCandidates.map((workflow) => workflow.artifact.intentSignature);
+    if (candidates.length === 0) return { kind: 'miss' };
+    const signatures = candidates.map((workflow) => workflow.artifact.intentSignature);
     const match = new CapabilityMatcher(signatures).match(goal);
     if (match.kind === 'match') {
-      const workflow = familyCandidates.find((candidate) => candidate.artifact.intentSignature === match.capability);
+      const workflow = candidates.find((candidate) => candidate.artifact.intentSignature === match.capability);
       return workflow ? { kind: 'match', workflow, slots: match.slots } : { kind: 'miss' };
     }
     if (match.kind === 'ambiguous') return { kind: 'ambiguous' };
     if (match.kind === 'clarification') return { kind: 'clarification', message: match.message };
+    // A provider intent may normalize a paraphrase to an existing learned
+    // family. Accept that fallback only when the signature objective is exact,
+    // every declared input has grounded provenance, and all family concepts
+    // remain visible in the user's text. This keeps matching conservative
+    // while allowing "where is my balance" to reuse a saved balance workflow.
+    if (intent?.objective) {
+      const normalizedGoal = goal.toLowerCase();
+      const candidatesByIntent = candidates.filter((candidate) => candidate.artifact.intentSignature.intent === intent.objective);
+      const eligible = candidatesByIntent.filter((candidate) => {
+        const signature = candidate.artifact.intentSignature;
+        const conceptOverlap = signature.requiredConcepts.filter((concept) => normalizedGoal.includes(concept.toLowerCase())).length;
+        if (signature.requiredConcepts.length > 0 && conceptOverlap === 0) return false;
+        return candidate.artifact.inputs.every((input) => intent.entities.some((entity) => entity.proposedName === input.name && entity.value.length > 0));
+      });
+      if (eligible.length === 1) {
+        const workflow = eligible[0];
+        if (workflow) return { kind: 'match', workflow, slots: Object.fromEntries(workflow.artifact.inputs.map((input) => [input.name, intent.entities.find((entity) => entity.proposedName === input.name)!.value])) };
+      }
+      if (eligible.length > 1) return { kind: 'ambiguous' };
+    }
     return { kind: 'miss' };
   }
 
@@ -461,6 +501,107 @@ export async function createCompanion(options: CompanionOptions = {}): Promise<F
     return details.length ? { ok: false, details } : { ok: true, inputs: values };
   }
 
+  function intentModelFor(modelValue: DiscoveryModel): IntentModel | undefined {
+    const candidate = modelValue as DiscoveryModel & Partial<IntentModel>;
+    return typeof candidate.interpretGoal === 'function' ? candidate as IntentModel : undefined;
+  }
+
+  function assertGroundedIntent(intent: ProvisionalIntent, goal: string): ProvisionalIntent {
+    for (const entity of intent.entities) {
+      const sourcePresent = goal.includes(entity.sourceSpan);
+      const valuePresent = goal.includes(entity.value) || entity.sourceSpan.includes(entity.value);
+      const normalizedDateWithProvenance = entity.sensitivity === 'date'
+        && isIsoDateInput(entity.value)
+        && /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|today|yesterday|tomorrow|last|this|next)\b/i.test(entity.sourceSpan);
+      if (!entity.value.trim() || !entity.sourceSpan.trim() || !sourcePresent || (!valuePresent && !normalizedDateWithProvenance)) {
+        throw new Error(`llm_intent_invalid:entity_${entity.proposedName}_is_not_grounded`);
+      }
+    }
+    return { ...intent, userGoal: goal };
+  }
+
+  type PreparedIntent = {
+    goal: string;
+    intent?: ProvisionalIntent;
+    intentModelCalls: number;
+    needsInput?: string;
+    selectedWorkflow?: WorkflowRecord;
+    selectedInputs?: Record<string, string>;
+    selectedIncompatible?: string;
+  };
+
+  function selectedInputQuestion(workflow: WorkflowRecord, names: string[]): string {
+    const labels = names.map((name) => name.replace(/[_-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()));
+    return labels.length === 1
+      ? `What ${labels[0]} should I use for "${workflow.title}"?`
+      : `What ${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]} should I use for "${workflow.title}"?`;
+  }
+
+  function selectedGoalCompatible(workflow: WorkflowRecord, goal: string, intent: ProvisionalIntent): boolean {
+    if (workflow.artifact.intentSignature.intent === intent.objective) return true;
+    const normalizedGoal = goal.toLowerCase();
+    return workflow.artifact.intentSignature.requiredConcepts.every((concept) => normalizedGoal.includes(concept.toLowerCase()));
+  }
+
+  function valuesForSelectedWorkflow(workflow: WorkflowRecord, intent: ProvisionalIntent, slots: Record<string, string> = {}): Record<string, string> {
+    return Object.fromEntries(workflow.artifact.inputs.flatMap((input) => {
+      const entity = intent.entities.find((candidate) => candidate.proposedName === input.name);
+      const value = entity?.value ?? slots[input.name];
+      return value === undefined ? [] : [[input.name, value]];
+    }));
+  }
+
+  async function prepareIntent(goal: string, conversation?: PendingConversation, selectedWorkflow?: WorkflowRecord): Promise<PreparedIntent> {
+    const fullGoal = conversation ? `${conversation.goal} ${goal}`.trim() : goal;
+    const deterministicMissing = missingGoalInput(fullGoal);
+    if (deterministicMissing) {
+      if (!selectedWorkflow) return { goal: fullGoal, intentModelCalls: 0, needsInput: deterministicMissing };
+      const inputNames = selectedWorkflow.artifact.inputs.map((input) => input.name);
+      return { goal: fullGoal, intentModelCalls: 0, needsInput: inputNames.length ? selectedInputQuestion(selectedWorkflow, inputNames) : deterministicMissing, selectedWorkflow };
+    }
+
+    let deterministic: ProvisionalIntent | undefined;
+    try { deterministic = await interpreter.interpret(fullGoal); } catch { /* execute retains legacy clarification behavior */ }
+    if (!deterministic) return { goal: fullGoal, intentModelCalls: 0 };
+
+    if (selectedWorkflow) {
+      const selectedMatch = matchWorkflows([selectedWorkflow], fullGoal, deterministic);
+      const selectedInputs = valuesForSelectedWorkflow(selectedWorkflow, deterministic, selectedMatch.kind === 'match' ? selectedMatch.slots : {});
+      const missingInputs = selectedWorkflow.artifact.inputs.filter((input) => selectedInputs[input.name] === undefined).map((input) => input.name);
+      if (missingInputs.length) return { goal: fullGoal, intent: deterministic, intentModelCalls: 0, needsInput: selectedInputQuestion(selectedWorkflow, missingInputs), selectedWorkflow };
+      if (!selectedGoalCompatible(selectedWorkflow, fullGoal, deterministic)) {
+        return { goal: fullGoal, intent: deterministic, intentModelCalls: 0, selectedIncompatible: `The selected workflow "${selectedWorkflow.title}" does not match this request.` };
+      }
+      const validated = validateWorkflowInputs(selectedWorkflow, selectedInputs);
+      if (!validated.ok) {
+        const missing = validated.details.filter((detail) => detail.code === 'MISSING').map((detail) => detail.field);
+        return missing.length
+          ? { goal: fullGoal, intent: deterministic, intentModelCalls: 0, needsInput: selectedInputQuestion(selectedWorkflow, missing), selectedWorkflow }
+          : { goal: fullGoal, intent: deterministic, intentModelCalls: 0, selectedIncompatible: `The selected workflow inputs are invalid for this request.` };
+      }
+      return { goal: fullGoal, intent: deterministic, intentModelCalls: 0, selectedWorkflow, selectedInputs: validated.inputs };
+    }
+
+    const workflows = store.listWorkflows();
+    const activeMatch = matchWorkflows(workflows.filter((workflow) => !workflow.archived), fullGoal, deterministic);
+    if (activeMatch.kind !== 'miss') return { goal: fullGoal, intent: deterministic, intentModelCalls: 0 };
+
+    const goalModel = intentModelFor(model);
+    if (!goalModel) return { goal: fullGoal, intent: deterministic, intentModelCalls: 0 };
+    const context = {
+      signatures: workflows.filter((workflow) => !workflow.archived).map((workflow) => redact({
+        intent: workflow.artifact.intentSignature.intent,
+        requiredConcepts: workflow.artifact.intentSignature.requiredConcepts,
+        phrases: workflow.artifact.intentSignature.phrases
+      }))
+    };
+    const decision = await goalModel.interpretGoal(fullGoal, context);
+    if (decision && typeof decision === 'object' && 'kind' in decision && decision.kind === 'needs_input') {
+      return { goal: fullGoal, intentModelCalls: 1, needsInput: decision.message };
+    }
+    return { goal: fullGoal, intentModelCalls: 1, intent: assertGroundedIntent(decision as ProvisionalIntent, fullGoal) };
+  }
+
   async function replayWorkflow(runId: string, workflow: WorkflowRecord, inputs: Record<string, string>): Promise<RunReply> {
     const run = store.getRun(runId);
     if (!run) throw new Error('run_not_found');
@@ -486,46 +627,35 @@ export async function createCompanion(options: CompanionOptions = {}): Promise<F
     }
   }
 
-  async function execute(runId: string, goal: string): Promise<RunReply> {
+  async function execute(runId: string, goal: string, suppliedIntent?: ProvisionalIntent, intentModelCalls = 0): Promise<RunReply> {
     const run = store.getRun(runId);
     if (!run) throw new Error('run_not_found');
     const lease = new ControlLease(); leases.set(runId, lease);
-    store.updateRun(runId, { status: 'running' });
-    let intent;
-    try { intent = await interpreter.interpret(goal); } catch (error) {
+    store.updateRun(runId, { status: 'running', intentModelCalls });
+    let intent = suppliedIntent;
+    try { if (!intent) intent = await interpreter.interpret(goal); } catch (error) {
       const result: RunResult = { status: 'failed', error: { code: 'CLARIFICATION_REQUIRED', message: error instanceof Error ? error.message : String(error) } };
-      store.updateRun(runId, { status: 'failed', result, llmCalls: 0, mode: 'clarification' });
+      store.updateRun(runId, { status: 'failed', result, llmCalls: 0, intentModelCalls, mode: 'clarification' });
       appendResultEvent(store, runId, result, 0);
       await persistRun(runId).catch(() => undefined);
       leases.delete(runId);
-      return { runId, llmCalls: 0, mode: 'clarification' };
+      return { runId, llmCalls: 0, intentModelCalls, mode: 'clarification' };
     }
+    if (!intent) throw new Error('goal_interpretation_missing');
     try {
       const workflows = store.listWorkflows();
       const active = workflows.filter((workflow) => !workflow.archived);
-      const activeMatch = matchWorkflows(active, goal, intent.objective);
+      const activeMatch = matchWorkflows(active, goal, intent);
       if (activeMatch.kind === 'clarification' || activeMatch.kind === 'ambiguous') {
         const result: RunResult = { status: 'failed', error: { code: 'CLARIFICATION_REQUIRED', message: activeMatch.kind === 'clarification' ? activeMatch.message : 'More than one workflow matches this request.' } };
-        store.updateRun(runId, { status: 'failed', result, llmCalls: 0, mode: 'clarification' });
+        store.updateRun(runId, { status: 'failed', result, llmCalls: 0, intentModelCalls, mode: 'clarification' });
         appendResultEvent(store, runId, result, 0);
         await persistRun(runId).catch(() => undefined);
         leases.delete(runId);
-        return { runId, llmCalls: 0, mode: 'clarification' };
+        return { runId, llmCalls: 0, intentModelCalls, mode: 'clarification' };
       }
       if (activeMatch.kind === 'match') {
         return replayWorkflow(runId, activeMatch.workflow, activeMatch.slots);
-      }
-      // An archived workflow is an explicit operator choice. A natural
-      // language miss must never silently rediscover and replace that workflow.
-      const archivedMatch = matchWorkflows(workflows.filter((workflow) => workflow.archived), goal, intent.objective);
-      if (archivedMatch.kind === 'match' || archivedMatch.kind === 'ambiguous' || archivedMatch.kind === 'clarification') {
-        const message = archivedMatch.kind === 'match' ? `Workflow "${archivedMatch.workflow.title}" is archived. Restore it before running this request.` : archivedMatch.kind === 'clarification' ? archivedMatch.message : 'More than one archived workflow matches this request.';
-        const result: RunResult = { status: 'failed', error: { code: 'WORKFLOW_ARCHIVED', message } };
-        store.updateRun(runId, { status: 'failed', result, llmCalls: 0, mode: 'clarification' });
-        appendResultEvent(store, runId, result, 0);
-        await persistRun(runId).catch(() => undefined);
-        leases.delete(runId);
-        return { runId, llmCalls: 0, mode: 'clarification' };
       }
     let llmCalls = 0;
       const counted: DiscoveryModel = {
@@ -552,7 +682,7 @@ export async function createCompanion(options: CompanionOptions = {}): Promise<F
     sessions.set(runId, discovery.session);
     llmCallCounts.set(runId, llmCalls);
     const discoveredWorkflow = discovery.artifact ? store.listWorkflows().find((workflow) => workflow.artifact === discovery.artifact) : undefined;
-    store.updateRun(runId, { status: statusFor(discoveryResult), result: discoveryResult, ...(discovery.artifact ? { capabilityId: discovery.artifact.capabilityId } : {}), ...(discoveredWorkflow ? { workflowId: discoveredWorkflow.id } : {}), sessionId: discovery.session.id, events: discovery.events, llmCalls, mode: 'discovery' });
+    store.updateRun(runId, { status: statusFor(discoveryResult), result: discoveryResult, ...(discovery.artifact ? { capabilityId: discovery.artifact.capabilityId } : {}), ...(discoveredWorkflow ? { workflowId: discoveredWorkflow.id } : {}), sessionId: discovery.session.id, events: discovery.events, llmCalls, intentModelCalls, mode: 'discovery' });
     appendResultEvent(store, runId, discoveryResult, llmCalls);
     if (discoveryResult.status !== 'needs_human') await persistRun(runId).catch(() => undefined);
     if (discoveryResult.status !== 'needs_human') {
@@ -560,7 +690,7 @@ export async function createCompanion(options: CompanionOptions = {}): Promise<F
       await surface.close(discovery.session);
       sessions.delete(runId);
     }
-    return { runId, llmCalls, mode: 'discovery' };
+    return { runId, llmCalls, intentModelCalls, mode: 'discovery' };
     } catch (error) {
       const current = store.getRun(runId);
       if (current?.result && ['succeeded', 'business_outcome', 'failed', 'aborted'].includes(current.status)) {
@@ -572,17 +702,60 @@ export async function createCompanion(options: CompanionOptions = {}): Promise<F
   }
 
   app.get('/', async (_request, reply) => reply.type('text/html').send(companionHtml));
-  app.post<{ Body: { goal?: string } }>('/api/tasks', async (request, reply) => {
+  app.post<{ Body: { goal?: string; conversationId?: string; context?: unknown } }>('/api/tasks', async (request, reply) => {
     const goal = request.body?.goal;
     if (typeof goal !== 'string' || !goal.trim()) return reply.code(400).send({ error: 'goal must be one plain-language sentence' });
-    const run = store.createRun(goal.trim());
-    store.updateRun(run.id, { executionMode, ...(executionMode === 'live' ? { providerEndpoint, modelId, generationSettings: { temperature: 0, timeoutMs: llmTimeoutMs, actionMode: llmActionMode } } : {}) });
-    const prefersAsync = String(request.headers.prefer ?? '').toLowerCase().split(',').some((value) => value.trim() === 'respond-async');
-    if (prefersAsync) {
-      void execute(run.id, goal.trim()).catch((error) => finishUnexpectedFailure(run.id, error));
-      return reply.code(202).send({ runId: run.id, status: 'pending' });
+    const requestContext = request.body?.context && typeof request.body.context === 'object' && !Array.isArray(request.body.context)
+      ? request.body.context as Record<string, unknown>
+      : undefined;
+    const contextConversationId = typeof requestContext?.conversationId === 'string' ? requestContext.conversationId : undefined;
+    const conversationId = request.body?.conversationId ?? contextConversationId;
+    if (conversationId !== undefined && (typeof conversationId !== 'string' || !conversationId.trim())) return reply.code(400).send({ error: 'conversationId must be a non-empty string' });
+    const contextGoal = typeof requestContext?.originalGoal === 'string' && requestContext.originalGoal.trim()
+      ? requestContext.originalGoal.trim()
+      : typeof requestContext?.goal === 'string' && requestContext.goal.trim() ? requestContext.goal.trim() : undefined;
+    const prior = conversationId ? pendingConversations.get(conversationId) : contextGoal ? { goal: contextGoal, createdAt: new Date().toISOString() } : undefined;
+    if (conversationId && !prior) return reply.code(404).send({ error: 'conversation_not_found' });
+    const selectedContextId = requestContext?.source === 'saved_automation' && typeof requestContext.workflowId === 'string'
+      ? requestContext.workflowId.trim()
+      : undefined;
+    if (requestContext?.source === 'saved_automation' && !selectedContextId && !prior?.workflowId) return reply.code(400).send({ error: 'workflowId is required for saved_automation context' });
+    const selectedWorkflowId = selectedContextId || prior?.workflowId;
+    const selectedWorkflow = selectedWorkflowId ? store.getWorkflow(selectedWorkflowId) : undefined;
+    if (selectedWorkflowId && !selectedWorkflow) return reply.code(404).send({ error: 'workflow_not_found' });
+    if (selectedWorkflow?.archived) return reply.code(409).send({ error: 'workflow_archived', message: `Workflow "${selectedWorkflow.title}" is archived. Restore it before running this request.` });
+    const inputGoal = goal.trim();
+    let prepared: PreparedIntent;
+    try {
+      prepared = await prepareIntent(inputGoal, prior, selectedWorkflow);
+    } catch (error) {
+      const diagnostic = safeIntentError(error);
+      return reply.code(502).send({ error: 'intent_interpretation_failed', message: diagnostic.message, intentModelCalls: intentModelFor(model) ? 1 : 0, ...(diagnostic.category ? { category: diagnostic.category } : {}) });
     }
-    const result = await execute(run.id, goal.trim());
+    if (prepared.selectedIncompatible) return reply.code(409).send({ error: 'workflow_incompatible', message: prepared.selectedIncompatible });
+    if (prepared.needsInput) {
+      const id = conversationId ?? `conversation-${crypto.randomUUID()}`;
+      pendingConversations.set(id, { goal: prepared.goal, createdAt: new Date().toISOString(), ...(selectedWorkflowId ? { workflowId: selectedWorkflowId } : {}) });
+      return reply.code(200).send({ status: 'needs_input', message: prepared.needsInput, conversationId: id, intentModelCalls: prepared.intentModelCalls });
+    }
+    if (conversationId) pendingConversations.delete(conversationId);
+    const run = store.createRun(prepared.goal);
+    intentModelCallCounts.set(run.id, prepared.intentModelCalls);
+    store.updateRun(run.id, { executionMode, intentModelCalls: prepared.intentModelCalls, ...(executionMode === 'live' ? { providerEndpoint, modelId, generationSettings: { temperature: 0, timeoutMs: llmTimeoutMs, actionMode: llmActionMode, observationMode } } : {}) });
+    const prefersAsync = String(request.headers.prefer ?? '').toLowerCase().split(',').some((value) => value.trim() === 'respond-async');
+    if (prepared.selectedWorkflow && prepared.selectedInputs) {
+      if (prefersAsync) {
+        void replayWorkflow(run.id, prepared.selectedWorkflow, prepared.selectedInputs).catch((error) => finishUnexpectedFailure(run.id, error));
+        return reply.code(202).send({ runId: run.id, status: 'pending', llmCalls: 0, intentModelCalls: prepared.intentModelCalls, mode: 'replay' });
+      }
+      const replay = await replayWorkflow(run.id, prepared.selectedWorkflow, prepared.selectedInputs);
+      return reply.code(201).send({ ...replay, intentModelCalls: prepared.intentModelCalls });
+    }
+    if (prefersAsync) {
+      void execute(run.id, prepared.goal, prepared.intent, prepared.intentModelCalls).catch((error) => finishUnexpectedFailure(run.id, error));
+      return reply.code(202).send({ runId: run.id, status: 'pending', intentModelCalls: prepared.intentModelCalls });
+    }
+    const result = await execute(run.id, prepared.goal, prepared.intent, prepared.intentModelCalls);
     return reply.code(201).send(result);
   });
   app.get('/api/context', async () => ({ appName: 'Demo Credit Union', workspaceName: 'Member Servicing', targetUrl: target.url, executionMode, discoveryConfigured, learnedWorkflow: learned ?? null }));
@@ -775,6 +948,26 @@ function isIsoDateInput(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00Z`);
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function safeIntentError(error: unknown): { message: string; category?: string } {
+  const raw = error instanceof Error ? error.message : String(error);
+  const provider = /^llm_http_\d+:(auth|rate_limit|invalid_request|unsupported|upstream_unavailable|timeout|provider_error)$/.exec(raw);
+  if (provider?.[1]) {
+    const category = provider[1];
+    const message = category === 'auth' ? 'The request interpreter could not authenticate with the configured provider.'
+      : category === 'rate_limit' ? 'The request interpreter is rate limited; try again shortly.'
+        : category === 'timeout' ? 'The request interpreter timed out; try again.'
+          : category === 'unsupported' ? 'The configured provider does not support the requested intent format.'
+            : category === 'upstream_unavailable' ? 'The request interpreter provider is temporarily unavailable.'
+              : category === 'invalid_request' ? 'The request interpreter rejected the intent request.'
+                : 'The request interpreter provider returned an error.';
+    return { message, category };
+  }
+  if (/^llm_intent_invalid:/.test(raw)) return { message: 'The request could not be grounded to the text you provided.', category: 'intent_protocol' };
+  if (/abort|timeout/i.test(raw)) return { message: 'The request interpreter timed out; try again.', category: 'timeout' };
+  if (/fetch failed|network|econn|enotfound/i.test(raw)) return { message: 'The request interpreter provider could not be reached.', category: 'upstream_unavailable' };
+  return { message: 'The request interpreter is temporarily unavailable.' };
 }
 
 function statusFor(result: RunResult): 'succeeded' | 'business_outcome' | 'needs_human' | 'failed' { return result.status; }

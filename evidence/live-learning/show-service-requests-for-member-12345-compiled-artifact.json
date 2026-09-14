@@ -1,0 +1,186 @@
+{
+  "schemaVersion": 1,
+  "capabilityId": "learned.show-service-requests-for-member",
+  "version": "1.0.0",
+  "title": "Show service requests for",
+  "intentSignature": {
+    "intent": "show_service_requests_for_member",
+    "requiredConcepts": [
+      "show",
+      "service requests",
+      "member",
+      "service",
+      "requests",
+      "for"
+    ],
+    "phrases": [
+      "Show service requests for member {member_id}"
+    ]
+  },
+  "inputs": [
+    {
+      "name": "member_id",
+      "type": "string",
+      "sensitivity": "sensitive_identifier",
+      "validation": {
+        "minLength": 1,
+        "maxLength": 256
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "name": "results",
+      "type": "string"
+    }
+  ],
+  "businessOutcomes": [],
+  "risk": "READ_ONLY",
+  "policyProfile": {
+    "allowedOrigins": [
+      "http://localhost:3001",
+      "http://127.0.0.1:3001"
+    ],
+    "allowedRoutes": [
+      "/",
+      "/servicing*"
+    ],
+    "allowedActionKinds": [
+      "click",
+      "fill",
+      "selectOption",
+      "wait",
+      "extract",
+      "finish",
+      "requestHuman"
+    ],
+    "maxRisk": "READ_ONLY",
+    "controlOwner": "automation",
+    "blockedTargetNamePatterns": [
+      "Post Fee"
+    ]
+  },
+  "actions": [
+    {
+      "kind": "fill",
+      "id": "fill-member-id",
+      "target": {
+        "strategies": [
+          {
+            "role": "textbox",
+            "name": "Member ID",
+            "label": "Member ID",
+            "framePath": [
+              "title:Member Servicing Area"
+            ],
+            "frameUrl": "http://127.0.0.1:3001/servicing"
+          }
+        ]
+      },
+      "value": {
+        "fromInput": "member_id"
+      },
+      "risk": "READ_ONLY"
+    },
+    {
+      "kind": "click",
+      "id": "click-search",
+      "target": {
+        "strategies": [
+          {
+            "role": "button",
+            "name": "Search",
+            "framePath": [
+              "title:Member Servicing Area"
+            ],
+            "frameUrl": "http://127.0.0.1:3001/servicing"
+          }
+        ]
+      },
+      "risk": "READ_ONLY"
+    },
+    {
+      "kind": "click",
+      "id": "click-member-summary",
+      "target": {
+        "strategies": [
+          {
+            "role": "link",
+            "name": "Member Summary",
+            "framePath": [
+              "title:Member Servicing Area"
+            ],
+            "frameUrl": "http://127.0.0.1:3001/servicing/member-search"
+          }
+        ]
+      },
+      "risk": "READ_ONLY"
+    },
+    {
+      "kind": "click",
+      "id": "click-member-service-requests",
+      "target": {
+        "strategies": [
+          {
+            "role": "link",
+            "name": "Member Service Requests",
+            "framePath": [
+              "title:Member Servicing Area"
+            ],
+            "frameUrl": "http://127.0.0.1:3001/servicing/member/[REDACTED]/summary"
+          }
+        ]
+      },
+      "risk": "READ_ONLY"
+    },
+    {
+      "kind": "extract",
+      "id": "extract-results",
+      "target": {
+        "strategies": [
+          {
+            "role": "table",
+            "name": "Service requests",
+            "framePath": [
+              "title:Member Servicing Area"
+            ],
+            "frameUrl": "http://127.0.0.1:3001/servicing/service-requests"
+          }
+        ]
+      },
+      "output": "results",
+      "parseAs": "string"
+    },
+    {
+      "kind": "finish",
+      "id": "service-requests-member_id",
+      "outputs": [
+        "results"
+      ],
+      "checkpoint": "Service request queue"
+    }
+  ],
+  "preconditions": [
+    "target is on an allowed origin",
+    "automation owns the session"
+  ],
+  "postconditions": [
+    "Service request queue"
+  ],
+  "waits": {
+    "defaultTimeoutMs": 10000,
+    "retries": 1
+  },
+  "extraction": [
+    {
+      "output": "results",
+      "actionId": "extract-results",
+      "parseAs": "string"
+    }
+  ],
+  "finalCheckpoint": "Service request queue",
+  "compatibility": {
+    "applicationFamily": "legacy-member-servicing",
+    "targetProfileId": "demo-app"
+  }
+}

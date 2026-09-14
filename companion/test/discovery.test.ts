@@ -12,8 +12,14 @@ class ScriptedModel implements DiscoveryModel {
 }
 class RepairingModel implements DiscoveryModel {
   repairs = 0;
-  constructor(private readonly initial: Record<string, unknown>, private readonly corrected: Record<string, unknown> | Array<Record<string, unknown>>) {}
-  async decide(): Promise<Record<string, unknown>> { return this.initial; }
+  private decisions = 0;
+  constructor(private readonly initial: Record<string, unknown>, private readonly corrected: Record<string, unknown> | Array<Record<string, unknown>>, private readonly afterRepair?: Record<string, unknown>) {}
+  async decide(): Promise<Record<string, unknown>> {
+    this.decisions += 1;
+    const repairCount = Array.isArray(this.corrected) ? this.corrected.length : 1;
+    if (this.afterRepair && this.repairs >= repairCount) return this.afterRepair;
+    return this.initial;
+  }
   async repair(_snapshot: SurfaceSnapshot, _intent: Parameters<NonNullable<DiscoveryModel['repair']>>[1], _events: unknown[], context: { validationError: string; attempt: number }): Promise<Record<string, unknown>> {
     this.repairs += 1;
     expect(context.validationError).toContain('target');
@@ -55,9 +61,10 @@ describe('discovery loop', () => {
   it('makes one bounded repair call and only acts after the repaired action validates', async () => {
     const model = new RepairingModel(
       { kind: 'click', id: 'go' },
-      { kind: 'finish', id: 'done', outputs: [], checkpoint: 'Current Balance visible' }
+      { kind: 'extract', id: 'balance', target: { strategies: [{ text: 'Current Balance' }] }, output: 'current_savings_balance', parseAs: 'money' },
+      { kind: 'finish', id: 'done', outputs: ['current_savings_balance'], checkpoint: 'Current Balance visible' }
     );
-    const policy = new PolicyGate({ allowedOrigins: ['http://localhost:3001'], allowedRoutes: ['/member-search'], allowedActionKinds: ['click', 'finish'], maxRisk: 'READ_ONLY', controlOwner: 'automation' });
+    const policy = new PolicyGate({ allowedOrigins: ['http://localhost:3001'], allowedRoutes: ['/member-search'], allowedActionKinds: ['click', 'extract', 'finish'], maxRisk: 'READ_ONLY', controlOwner: 'automation' });
     const result = await new DiscoveryRunner(new DiscoverySurface(), model, policy, new ControlLease(), { maxActions: 2 }).run(
       interpretGoal('Look up member 12345 and tell me their savings balance.'), { id: 'demo-app', applicationFamily: 'legacy-member-servicing', url: 'http://localhost:3001' }
     );
@@ -88,10 +95,11 @@ describe('discovery loop', () => {
       { kind: 'click', id: 'go' },
       [
         { kind: 'click', id: 'still-missing-target', target: {} },
-        { kind: 'finish', id: 'done', outputs: [], checkpoint: 'Current Balance visible' }
-      ]
+        { kind: 'extract', id: 'balance', target: { strategies: [{ text: 'Current Balance' }] }, output: 'current_savings_balance', parseAs: 'money' }
+      ],
+      { kind: 'finish', id: 'done', outputs: ['current_savings_balance'], checkpoint: 'Current Balance visible' }
     );
-    const policy = new PolicyGate({ allowedOrigins: ['http://localhost:3001'], allowedRoutes: ['/member-search'], allowedActionKinds: ['click', 'finish'], maxRisk: 'READ_ONLY', controlOwner: 'automation' });
+    const policy = new PolicyGate({ allowedOrigins: ['http://localhost:3001'], allowedRoutes: ['/member-search'], allowedActionKinds: ['click', 'extract', 'finish'], maxRisk: 'READ_ONLY', controlOwner: 'automation' });
     const result = await new DiscoveryRunner(new DiscoverySurface(), model, policy, new ControlLease(), { maxActions: 2 }).run(
       interpretGoal('Look up member 12345 and tell me their savings balance.'), { id: 'demo-app', applicationFamily: 'legacy-member-servicing', url: 'http://localhost:3001' }
     );

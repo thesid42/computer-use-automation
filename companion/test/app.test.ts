@@ -39,4 +39,75 @@ describe('companion web API', () => {
     expect(modelCalls).toBe(0);
     await app.close();
   });
+
+  it('keeps missing values in a conversation and resumes the original request', async () => {
+    const app = await createCompanion({ offline: true });
+    const question = await app.inject({ method: 'POST', url: '/api/tasks', payload: { goal: "What's the balance?" } });
+    expect(question.statusCode).toBe(200);
+    const clarification = JSON.parse(question.body) as { status: string; message: string; conversationId: string };
+    expect(clarification).toMatchObject({ status: 'needs_input' });
+    expect(clarification.message).toMatch(/member|customer/i);
+    expect(clarification.conversationId).toMatch(/^conversation-/);
+
+    const completed = await app.inject({ method: 'POST', url: '/api/tasks', payload: { goal: 'member 12345', conversationId: clarification.conversationId } });
+    expect(completed.statusCode).toBe(201);
+    const run = JSON.parse(completed.body) as { runId: string; llmCalls: number };
+    expect(run.llmCalls).toBeGreaterThan(0);
+    expect((await app.inject(`/api/runs/${run.runId}`)).body).toContain('succeeded');
+    await app.close();
+  });
+
+  it('uses a grounded provider intent to learn an unlisted read-only workflow', async () => {
+    let intentCalls = 0;
+    let actionCalls = 0;
+    const model: DiscoveryModel & { interpretGoal: (goal: string, context?: unknown) => Promise<unknown> } = {
+      interpretGoal: async (goal) => {
+        intentCalls += 1;
+        return {
+          objective: 'lookup_branch_directory',
+          entities: [{ proposedName: 'branch_name', value: 'New York', sourceSpan: 'New York', type: 'string', sensitivity: 'plain' }],
+          requestedOutputs: [{ proposedName: 'branch_directory', type: 'string' }],
+          risk: 'read_only', userGoal: goal,
+          requiredConcepts: ['branch', 'directory'], phrases: ['show branch directory in {branch_name}']
+        };
+      },
+      decide: async (_snapshot, _intent, events) => {
+        actionCalls += 1;
+        if (events.length === 0) return { kind: 'fill', id: 'fill-branch', target: { strategies: [{ label: 'Branch' }] }, value: { fromInput: 'branch_name' }, risk: 'READ_ONLY' };
+        if (!events.some((event) => event.kind === 'action' && typeof event.action === 'object' && (event.action as { kind?: string }).kind === 'extract')) return { kind: 'extract', id: 'extract-directory', target: { strategies: [{ text: 'Member Search' }] }, output: 'branch_directory', parseAs: 'string' };
+        return { kind: 'finish', id: 'finish-directory', outputs: ['branch_directory'], checkpoint: 'Member Search' };
+      }
+    };
+    const app = await createCompanion({ offline: true, surface: new ScriptedDemoSurfaceAdapter(), discoveryModel: model });
+    const response = await app.inject({ method: 'POST', url: '/api/tasks', payload: { goal: 'Show branch directory in New York.' } });
+    expect(response.statusCode).toBe(201);
+    const handle = JSON.parse(response.body) as { runId: string; llmCalls: number; intentModelCalls: number };
+    expect(handle).toMatchObject({ llmCalls: actionCalls, intentModelCalls: 1 });
+    expect(intentCalls).toBe(1);
+    const run = JSON.parse((await app.inject(`/api/runs/${handle.runId}`)).body) as { status: string; result: { status: string } };
+    expect(run).toMatchObject({ status: 'succeeded', result: { status: 'succeeded' } });
+    const summaries = JSON.parse((await app.inject('/api/workflows')).body) as Array<{ intentModelCalls?: number; inputs: Array<{ name: string }>; outputs: Array<{ name: string }> }>;
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).toMatchObject({ inputs: [{ name: 'branch_name' }], outputs: [{ name: 'branch_directory', type: 'string' }] });
+    await app.close();
+  });
+
+  it('rejects provider entities whose normalized value is absent from its source span', async () => {
+    let actionCalls = 0;
+    const model: DiscoveryModel & { interpretGoal: (goal: string, context?: unknown) => Promise<unknown> } = {
+      interpretGoal: async (goal) => ({
+        objective: 'lookup_branch_directory',
+        entities: [{ proposedName: 'branch_name', value: 'Southside', sourceSpan: 'Northside', type: 'string', sensitivity: 'plain' }],
+        requestedOutputs: [{ proposedName: 'branch_directory', type: 'string' }],
+        risk: 'read_only', userGoal: goal, requiredConcepts: ['branch', 'directory']
+      }),
+      decide: async () => { actionCalls += 1; return { kind: 'finish', id: 'finish', outputs: [], checkpoint: 'Member Search' }; }
+    };
+    const app = await createCompanion({ offline: true, discoveryModel: model });
+    const response = await app.inject({ method: 'POST', url: '/api/tasks', payload: { goal: 'Show branch directory in Northside.' } });
+    expect(response.statusCode).toBe(502);
+    expect(JSON.parse(response.body)).toMatchObject({ error: 'intent_interpretation_failed', category: 'intent_protocol', intentModelCalls: 1 });
+    expect(actionCalls).toBe(0);
+    await app.close();
+  });
 });

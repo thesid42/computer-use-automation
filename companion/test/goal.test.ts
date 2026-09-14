@@ -23,4 +23,14 @@ describe('goal interpretation', () => {
   it('rejects write-like member requests instead of treating them as balance lookups', () => {
     expect(() => interpretGoal('Post a fee for member 12345')).toThrow(/only supports.*balance|savings/i);
   });
+
+  it('accepts ordinary identifier wording without mistaking the label for a value', () => {
+    const result = interpretGoal('Show the balance for member id is 12345.');
+    expect(result.entities).toContainEqual(expect.objectContaining({ proposedName: 'member_id', value: '12345', sourceSpan: 'member id is 12345' }));
+  });
+
+  it('grounds a direct record identifier supplied after a clarification question', () => {
+    const result = interpretGoal('Show the account summary for account 555.');
+    expect(result.entities).toContainEqual(expect.objectContaining({ proposedName: 'account_id', value: '555', sensitivity: 'sensitive_identifier' }));
+  });
 });

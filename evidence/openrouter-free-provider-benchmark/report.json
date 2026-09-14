@@ -1,0 +1,57 @@
+{
+  "generatedAt": "2026-09-14T03:12:47.706Z",
+  "targetUrl": "http://127.0.0.1:3001",
+  "screenshot": "target-member-search.png",
+  "screenshotWidth": 1440,
+  "screenshotHeight": 1000,
+  "controlCount": 11,
+  "request": {
+    "actionMode": "tool",
+    "responseFormat": "none",
+    "grounding": "The model received the rendered synthetic demo screenshot and the current visible controls. A valid action had to contain exactly one current control ref."
+  },
+  "candidates": [
+    {
+      "modelId": "nex-agi/nex-n2.5-mini:free",
+      "status": "error",
+      "elapsedMs": 665,
+      "errorCategory": "http_400_invalid_request",
+      "actionMode": "tool",
+      "screenshot": "target-member-search.png",
+      "followUp": { "elapsedMs": 476, "providerErrorCategory": "invalid_request_error", "providerErrorMessage": "The request is invalid." }
+    },
+    {
+      "modelId": "inclusionai/ling-3.0-flash-vl:free",
+      "status": "ok",
+      "elapsedMs": 2176,
+      "valid": true,
+      "decisionKind": "fill",
+      "targetRef": "control-1-1-10",
+      "targetControl": { "role": "textbox", "name": "Member ID", "framePath": ["title:Member Servicing Area"] },
+      "actionMode": "tool",
+      "screenshot": "target-member-search.png"
+    },
+    {
+      "modelId": "google/gemma-4-26b-a4b-it:free",
+      "status": "error",
+      "elapsedMs": 175,
+      "errorCategory": "http_429_rate_limit",
+      "actionMode": "tool",
+      "screenshot": "target-member-search.png"
+    },
+    {
+      "modelId": "dots-studio/dots-3-note-preview:free",
+      "status": "ok",
+      "elapsedMs": 3868,
+      "valid": false,
+      "decisionKind": null,
+      "targetRef": null,
+      "actionMode": "tool",
+      "screenshot": "target-member-search.png"
+    }
+  ],
+  "selection": {
+    "modelId": "inclusionai/ling-3.0-flash-vl:free",
+    "reason": "Only candidate in this bounded comparison to return a parseable action grounded to a current control."
+  }
+}

@@ -150,39 +150,14 @@ export class ReplayRunner {
         }
         let visibleOutcome = outcomeFromSnapshot(snapshot);
         if (visibleOutcome?.status === 'recoverable') {
-          let recovery: ActionResult = visibleOutcome;
-          for (let attempt = 0; attempt <= artifact.waits.retries; attempt += 1) {
-            // Temporary errors in the legacy surface expose a visible Retry
-            // Search button. Recover through that browser control so replay
-            // remains UI-only and deterministic; retain a bounded wait when a
-            // compatible surface has no retry affordance.
-            const retryTarget: TargetSpec = { strategies: [{ role: 'button', name: 'Retry Search' }, { text: 'Retry Search' }] };
-            const retryResolution = await this.surface.resolve(session, retryTarget);
-            const recoveryAction: ArtifactAction = retryResolution.count === 1
-              ? { kind: 'click', id: `recover-${action.id}`, target: retryTarget, risk: 'READ_ONLY' }
-              : { kind: 'wait', id: `recover-${action.id}`, condition: 'text:TEMPORARY_LOAD_FAILURE', timeoutMs: artifact.waits.defaultTimeoutMs };
-            const recoveryDecision = this.policy.check({ kind: recoveryAction.kind, risk: 'READ_ONLY', ...(retryResolution.resolvedControl ? { target: retryResolution.resolvedControl } : {}) }, new URL(retryResolution.resolvedControl?.frameUrl ?? snapshot.url), 'automation', retryResolution.resolvedControl);
-            if (!recoveryDecision.allowed) return await this.failureResult(recorder, session, 'POLICY_VIOLATION', recoveryDecision.reason, recoveryAction.id, snapshot.stateFingerprint, recoveryAction);
-            recovery = await this.surface.act(session, recoveryAction);
-            const afterRecovery = await this.safeObserve(session, snapshot);
-            const observedRecoveryOutcome = outcomeFromSnapshot(afterRecovery);
-            // A click can return while the browser is still committing its
-            // navigation, so act() may report the old TEMPORARY marker even
-            // though the fresh observation is already the recovered page.
-            // Trust the fresh visible state for this bounded recovery step.
-            if (recovery.status === 'recoverable' && !observedRecoveryOutcome) recovery = { status: 'succeeded' };
-            else if (recovery.status === 'recoverable' && observedRecoveryOutcome?.status === 'business_outcome') recovery = observedRecoveryOutcome;
-            const recoveryEvidence = await this.captureEvidence(session);
-            recorder.record({ runId: session.id, stepId: recoveryAction.id, kind: 'action', action: recoveryAction, outcome: recovery.status, beforeFingerprint: snapshot.stateFingerprint, afterFingerprint: afterRecovery.stateFingerprint, evidence: recoveryEvidence });
-            if (recovery.status !== 'recoverable') break;
-            snapshot = afterRecovery;
-          }
+          const recovered = await this.recoverTemporary(session, snapshot, action.id, artifact, recorder);
+          const recovery = recovered.result;
           if (recovery.status === 'business_outcome') return recovery;
           if (recovery.status === 'needs_human') return this.pauseForHuman(session, recovery.reason, action.id, index, artifact, target, inputs, outputs, recorder);
           if (recovery.status !== 'succeeded') {
             return await this.failureResult(recorder, session, 'RECOVERABLE_EXHAUSTED', recovery.message, action.id, snapshot.stateFingerprint);
           }
-          snapshot = await this.surface.observe(session);
+          snapshot = recovered.snapshot;
           visibleOutcome = outcomeFromSnapshot(snapshot);
         }
         if (visibleOutcome?.status === 'business_outcome') {
@@ -234,13 +209,29 @@ export class ReplayRunner {
         for (let attempt = 0; attempt <= artifact.waits.retries; attempt += 1) {
           result = await this.surface.act(session, prepared);
           if (result.status !== 'recoverable') break;
+          const afterFailure = await this.safeObserve(session, snapshot);
+          const observedFailure = outcomeFromSnapshot(afterFailure);
+          const recoveryControls = this.recoveryControls(afterFailure);
+          if (observedFailure?.status === 'recoverable' && recoveryControls.length !== 1) {
+            result = { status: 'failed', message: recoveryControls.length === 0 ? 'retry_control_missing' : 'retry_control_ambiguous' };
+            break;
+          }
+          if (recoveryControls.length === 1) {
+            const recovered = await this.recoverTemporary(session, afterFailure, action.id, artifact, recorder);
+            result = recovered.result;
+            if (result.status === 'succeeded') snapshot = recovered.snapshot;
+            break;
+          }
         }
         const after = await this.safeObserve(session, snapshot);
         const evidence = await this.captureEvidence(session);
         recorder.record({ runId: session.id, stepId: action.id, kind: 'action', action, outcome: result.status, beforeFingerprint: snapshot.stateFingerprint, afterFingerprint: after.stateFingerprint, evidence, ...(result.status === 'business_outcome' ? { details: { code: result.code } } : {}) });
         if (result.status === 'business_outcome') return result;
         if (result.status === 'needs_human') return this.pauseForHuman(session, result.reason, action.id, index + 1, artifact, target, inputs, outputs, recorder);
-        if (result.status !== 'succeeded') return await this.failureResult(recorder, session, result.status === 'recoverable' ? 'RECOVERABLE_EXHAUSTED' : 'SURFACE_FAILURE', result.message, action.id, after.stateFingerprint, action);
+        if (result.status !== 'succeeded') {
+          const exhaustedRecovery = result.status === 'recoverable' || (result.status === 'failed' && /^retry_control_(?:missing|ambiguous)$/.test(result.message));
+          return await this.failureResult(recorder, session, exhaustedRecovery ? 'RECOVERABLE_EXHAUSTED' : 'SURFACE_FAILURE', result.message, action.id, after.stateFingerprint, action);
+        }
       }
       return await this.failureResult(recorder, session, 'FINAL_CHECKPOINT_MISSING', 'Artifact finished without a final checkpoint action');
     } catch (error) {
@@ -259,6 +250,50 @@ export class ReplayRunner {
     this.pausedSession = session;
     this.continuation = () => this.execute(artifact, target, inputs, session, outputs, nextIndex);
     return { status: 'needs_human', interventionId, reason, stepId };
+  }
+
+  private recoveryControls(snapshot: SurfaceSnapshot): SurfaceSnapshot['controls'] {
+    return snapshot.controls.filter((control) => /^(?:button|link)$/i.test(control.role) && [control.name, control.label, control.text]
+      .filter((value): value is string => typeof value === 'string')
+      .some((value) => /\b(?:retry|try\s+again)\b/i.test(value)));
+  }
+
+  private async recoverTemporary(session: SessionHandle, initialSnapshot: SurfaceSnapshot, stepId: string, artifact: CapabilityArtifact, recorder: RunEventRecorder): Promise<{ result: ActionResult; snapshot: SurfaceSnapshot }> {
+    let snapshot = initialSnapshot;
+    let result: ActionResult = { status: 'recoverable', message: 'Temporary load failure is visible', code: 'TEMPORARY_LOAD_FAILURE' };
+    for (let attempt = 0; attempt <= artifact.waits.retries; attempt += 1) {
+      this.lease.assertAutomation();
+      const controls = this.recoveryControls(snapshot);
+      if (controls.length === 0) return { result: { status: 'failed', message: 'retry_control_missing' }, snapshot };
+      if (controls.length > 1) return { result: { status: 'failed', message: 'retry_control_ambiguous' }, snapshot };
+      const control = controls[0];
+      if (!control) return { result: { status: 'failed', message: 'retry_control_missing' }, snapshot };
+      const retryTarget: TargetSpec = { strategies: [{ ref: control.ref, ...(control.framePath.length ? { framePath: control.framePath } : {}) }] };
+      const retryResolution = await this.surface.resolve(session, retryTarget);
+      if (retryResolution.count !== 1) return { result: { status: 'failed', message: retryResolution.count === 0 ? 'retry_control_missing' : 'retry_control_ambiguous' }, snapshot };
+      const recoveryAction: ArtifactAction = { kind: 'click', id: `recover-${stepId}-${attempt + 1}`, target: retryTarget, risk: 'READ_ONLY' };
+      const recoveryDecision = this.policy.check({ kind: 'click', risk: 'READ_ONLY', ...(retryResolution.resolvedControl ? { target: retryResolution.resolvedControl } : {}) }, new URL(retryResolution.resolvedControl?.frameUrl ?? snapshot.url), 'automation', retryResolution.resolvedControl);
+      if (!recoveryDecision.allowed) return { result: { status: 'failed', message: recoveryDecision.reason }, snapshot };
+      result = await this.surface.act(session, recoveryAction);
+      const afterRecovery = await this.safeObserve(session, snapshot);
+      const observedRecoveryOutcome = outcomeFromSnapshot(afterRecovery);
+      const recoveryEvidence = await this.captureEvidence(session);
+      recorder.record({ runId: session.id, stepId: recoveryAction.id, kind: 'action', action: recoveryAction, ...(retryResolution.resolvedControl ? { resolvedControl: retryResolution.resolvedControl } : {}), outcome: result.status, beforeFingerprint: snapshot.stateFingerprint, afterFingerprint: afterRecovery.stateFingerprint, evidence: recoveryEvidence });
+      if (observedRecoveryOutcome?.status === 'business_outcome') return { result: observedRecoveryOutcome, snapshot: afterRecovery };
+      if (observedRecoveryOutcome?.status === 'needs_human') return { result: observedRecoveryOutcome, snapshot: afterRecovery };
+      if (observedRecoveryOutcome?.status === 'recoverable') {
+        result = observedRecoveryOutcome;
+        snapshot = afterRecovery;
+        continue;
+      }
+      // A browser click may return while the old marker is still visible in
+      // the action response. Trust the fresh visible state after navigation.
+      if (!observedRecoveryOutcome && result.status === 'recoverable') return { result: { status: 'succeeded' }, snapshot: afterRecovery };
+      if (!observedRecoveryOutcome && result.status === 'succeeded') return { result, snapshot: afterRecovery };
+      if (result.status !== 'recoverable') return { result, snapshot: afterRecovery };
+      snapshot = afterRecovery;
+    }
+    return { result, snapshot };
   }
 
   private async safeObserve(session: SessionHandle, fallback: SurfaceSnapshot): Promise<SurfaceSnapshot> {

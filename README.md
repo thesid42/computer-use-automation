@@ -2,17 +2,20 @@
 
 A focused take-home implementation of a record-once, replay-many computer-use system for a legacy back-office application.
 
-The operator opens the companion workspace and submits a natural-language goal. If no active saved workflow matches, a vision-capable model discovers the flow by operating the target UI through Playwright. The verified run is compiled into a typed, reviewable artifact and durable workflow metadata. Later invocations either use the selected workflow's typed run form or match it from natural language and replay it deterministically without an LLM in the decision loop.
+The operator opens the companion workspace and describes a request in ordinary language. If no active saved workflow matches, an LLM discovers the flow by operating the target UI through Playwright. The observation can use grounded visible controls and text from the DOM/accessibility surface, or include a screenshot when multimodal mode is configured. The verified run is compiled into a typed, reviewable artifact and durable workflow metadata. Later requests can match a saved workflow or use its detail page's free-text run composer; replay remains deterministic without an LLM deciding each action.
 
-The MVP implements three synthetic, read-only workflow families:
+The synthetic target includes these read-only paths:
 
 - savings balance lookup;
 - savings transaction history search by inclusive date range;
 - loan payoff quote as of a supplied date.
+- member and account overview;
+- service request lookup by member and status;
+- branch directory lookup by branch or city.
 
-The library can retain compatible saved workflows beyond those examples, but the target adapter and intent support are intentionally limited to these three families.
+The first three paths are the measured workflow fixtures used by the local replay suite. The target also exposes bounded overview, service-request, branch-directory, and teller screens so a genuine discovery can learn from a broader legacy surface without the companion importing target data or source.
 
-The expanded transaction and loan flows are verified by scripted browser tests; fresh Nano provider discovery is currently unreliable (see the [acceptance checklist](docs/MVP-ACCEPTANCE.md) for the recorded attempts).
+Fresh Nex provider evidence now verifies service-request discovery/replay and branch-directory discovery/replay with changed inputs. Transaction and loan flows remain verified by scripted browser tests; no current provider claim is made for them. Historical Nano attempts remain recorded in the [acceptance checklist](docs/MVP-ACCEPTANCE.md).
 
 ## Applications
 
@@ -67,9 +70,11 @@ Edit the copied file and add the user-provided key; the checked-in example conta
 ~~~dotenv
 LLM_BASE_URL=https://openrouter.ai/api/v1
 LLM_API_KEY=replace-with-your-provider-key
-LLM_MODEL=nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
-LLM_ACTION_MODE=json
-LLM_TIMEOUT_MS=60000
+LLM_MODEL=nex-agi/nex-n2.5-mini:free
+LLM_ACTION_MODE=tool
+LLM_RESPONSE_FORMAT=none
+LLM_OBSERVATION_MODE=accessibility
+LLM_TIMEOUT_MS=45000
 DISCOVERY_MAX_ELAPSED_MS=300000
 TARGET_URL=http://127.0.0.1:3001
 ~~~
@@ -111,7 +116,7 @@ Offline artifacts and live artifacts use separate runtime namespaces.
 
 ## Demo goals
 
-Enter these in the New automation dialog:
+Enter these in the New request composer or Teach a task dialog:
 
 ~~~text
 Look up member 12345 and tell me their current savings balance.
@@ -121,9 +126,9 @@ Get an as-of 2026-09-30 payoff quote for member 12345's auto loan.
 
 The target's normal synthetic fixtures are member 12345 (success), 77777 (one transient search failure then Retry Search succeeds), and 88888 (same-session supervisor verification). Unknown 40404 returns MEMBER_NOT_FOUND; 54321 returns PERMISSION_DENIED. Transaction searches can return NO_TRANSACTIONS or INVALID_DATE_RANGE. Payoff requests can return NO_LOAN, INVALID_AS_OF_DATE, or UNSUPPORTED_AS_OF_DATE. The visible Post Fee control demonstrates policy denial and remains read-only.
 
-## Direct typed replay
+## Direct deterministic replay
 
-After a workflow artifact exists, the detail page's input form calls the internal typed workflow-run endpoint. A direct run does not invoke the LLM for decisions and reports llmCalls: 0 on success or failure metadata.
+After a workflow artifact exists, the detail page's free-text run composer sends a natural-language task with the selected workflow context. The API and CLI also expose the typed artifact contract for deterministic replay. A direct run does not invoke the LLM for decisions and reports llmCalls: 0 on success or failure metadata.
 
 The CLI can replay a saved artifact directly against a running target. From the repository root, using a live artifact:
 
@@ -143,11 +148,11 @@ The CLI prints one JSON result and exits nonzero for an invalid artifact, browse
 
 The browser workspace uses these local routes:
 
-- POST /api/tasks with { "goal": "..." } for natural-language discovery or active-workflow matching;
+- POST /api/tasks with { "goal": "..." }, optionally { "conversationId": "..." } for a clarification answer and { "context": { "workflowId": "..." } } for a selected saved workflow;
 - GET /api/workflows to list durable library metadata;
 - GET /api/workflows/:id to read one workflow, its validated artifact, and recent runs;
 - PATCH /api/workflows/:id with title, description, and/or archived metadata;
-- POST /api/workflows/:id/runs with { "inputs": { ... } } for direct typed deterministic replay;
+- POST /api/workflows/:id/runs with { "inputs": { ... } } for API-level typed deterministic replay;
 - GET /api/runs and GET /api/runs/:runId for searchable/inspectable redacted history;
 - GET /api/runs/:runId/events for structured activity;
 - intervention routes for screenshot, claim, resume, abort, and human-action evidence.
@@ -167,6 +172,6 @@ npm run test --prefix companion -- test/playwright-workflows.test.ts
 
 The repository preserves sanitized historical live evidence under [evidence/](evidence/). That package records a provider-backed discovery and zero-LLM replay, but the commands above are the authority for current code after the expanded workflow and library changes.
 
-The separate [savings runtime verification](evidence/savings-runtime-verification.json) records five direct replay/handoff scenarios plus one restart persistence check with zero model decision calls. It does not claim fresh provider discovery or verification of the expanded transaction and loan flows. Final provider attempts for the added families were unreliable; their local scripted browser coverage is measured in [the acceptance checklist](docs/MVP-ACCEPTANCE.md), while only savings has genuine historical provider evidence.
+The separate [savings runtime verification](evidence/savings-runtime-verification.json) records five direct replay/handoff scenarios plus one restart persistence check with zero model decision calls. Fresh [Nex live-learning evidence](evidence/live-learning/show-service-requests-for-member-12345.json) records service-request discovery for member 12345, and [the changed-input replay](evidence/live-learning/show-service-requests-for-member-77777.json) records the bounded 77777 outcome. [Branch discovery](evidence/live-learning/find-branches-matching-northside.json) and [changed-input branch replay](evidence/live-learning/find-branches-matching-lakeside.json) also succeeded. Transaction and loan flows remain covered by scripted browser tests; their current provider evaluation is not claimed.
 
-The local review workspace contains the previously learned savings workflow. A fresh checkout starts with an empty library until discovery or artifact loading. The library and internal API support multiple compatible workflow records, and that behavior is covered by the local test suite; the README does not present the three target families as three pre-seeded saved records.
+The local review workspace contains the previously learned savings workflow. A fresh checkout starts with an empty library until discovery or artifact loading. The library and internal API support multiple compatible workflow records, and that behavior is covered by the local test suite; the README does not present target destinations as pre-seeded saved records.

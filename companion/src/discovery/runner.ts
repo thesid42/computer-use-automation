@@ -39,20 +39,40 @@ function visibleOutcome(text: string): ActionResult | undefined {
   return undefined;
 }
 
+function groundedInputEntity(reference: string, intent: ProvisionalIntent): ProvisionalIntent['entities'][number] {
+  const byName = intent.entities.filter((entity) => entity.proposedName === reference);
+  if (byName.length === 1 && byName[0]) return byName[0];
+  if (byName.length > 1) throw new Error(`ambiguous_input_reference:${reference}`);
+  const byValue = intent.entities.filter((entity) => entity.value === reference);
+  if (byValue.length === 1 && byValue[0]) return byValue[0];
+  if (byValue.length > 1) throw new Error(`ambiguous_input_reference:${reference}`);
+  throw new Error(`unknown_input_reference:${reference}`);
+}
+
+function canonicalInputName(reference: string, intent: ProvisionalIntent): string {
+  return groundedInputEntity(reference, intent).proposedName;
+}
+
 function inputFromIntent(name: string, intent: ProvisionalIntent): string {
-  const value = intent.entities.find((entity) => entity.proposedName === name)?.value;
-  if (value === undefined) throw new Error(`missing_input:${name}`);
-  return value;
+  return groundedInputEntity(name, intent).value;
 }
 
 function eventAction(action: ArtifactAction, intent: ProvisionalIntent): ArtifactAction {
   if (action.kind === 'fill' && typeof action.value === 'string') {
-    const grounded = intent.entities.find((entity) => entity.value === action.value || entity.proposedName === action.value);
-    return grounded ? { ...action, value: { fromInput: grounded.proposedName } } : action;
+    const grounded = intent.entities.filter((entity) => entity.value === action.value || entity.proposedName === action.value);
+    if (grounded.length > 1) throw new Error(`ambiguous_input_reference:${action.value}`);
+    return grounded[0] ? { ...action, value: { fromInput: grounded[0].proposedName } } : action;
   }
   if (action.kind === 'selectOption' && typeof action.option === 'string') {
-    const grounded = intent.entities.find((entity) => entity.value === action.option || entity.proposedName === action.option);
-    return grounded ? { ...action, option: { fromInput: grounded.proposedName } } : action;
+    const grounded = intent.entities.filter((entity) => entity.value === action.option || entity.proposedName === action.option);
+    if (grounded.length > 1) throw new Error(`ambiguous_input_reference:${action.option}`);
+    return grounded[0] ? { ...action, option: { fromInput: grounded[0].proposedName } } : action;
+  }
+  if (action.kind === 'fill' && typeof action.value !== 'string') {
+    return { ...action, value: { fromInput: canonicalInputName(action.value.fromInput, intent) } };
+  }
+  if (action.kind === 'selectOption' && typeof action.option !== 'string') {
+    return { ...action, option: { fromInput: canonicalInputName(action.option.fromInput, intent) } };
   }
   return action;
 }
@@ -92,8 +112,8 @@ function normalizeModelAction(proposal: unknown, _snapshot: SurfaceSnapshot, int
   // while rejecting proposals that omit the semantic value entirely.
   const fromInput = value.fromInput;
   if ((value.kind === 'fill' && value.value === undefined) || (value.kind === 'selectOption' && value.option === undefined)) {
-    if (typeof fromInput === 'string' && intent.entities.some((entity) => entity.proposedName === fromInput)) {
-      value[value.kind === 'fill' ? 'value' : 'option'] = { fromInput };
+    if (typeof fromInput === 'string') {
+      value[value.kind === 'fill' ? 'value' : 'option'] = { fromInput: canonicalInputName(fromInput, intent) };
     }
   }
   delete value.fromInput;
@@ -213,7 +233,13 @@ export class DiscoveryRunner {
           if (!snapshot.visibleText.includes(action.checkpoint) && !snapshot.visibleText.includes(checkpoint)) return await this.failureResult(recorder, session, 'CHECKPOINT_MISMATCH', action.checkpoint, action.id);
           const evidence = await this.captureEvidence(session);
           recorder.record({ runId: session.id, stepId: action.id, kind: 'action', action, outcome: 'succeeded', beforeFingerprint: snapshot.stateFingerprint, afterFingerprint: snapshot.stateFingerprint, evidence: evidence.path ? [evidence.path] : [] });
-          return { runResult: { status: 'succeeded', outputs, checkpointVerified: true }, artifact: compileCapability(intent, recorder.events, target.id), events: recorder.events, session };
+          try {
+            const artifact = compileCapability(intent, recorder.events, target.id);
+            return { runResult: { status: 'succeeded', outputs, checkpointVerified: true }, artifact, events: recorder.events, session };
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            return await this.failureResult(recorder, session, 'CAPABILITY_COMPILE_INVALID', message, action.id);
+          }
         }
         if (action.kind === 'requestHuman') {
           const evidence = await this.captureEvidence(session);

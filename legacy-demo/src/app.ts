@@ -68,11 +68,16 @@ function portal(): string {
     .portalbar { display: flex; align-items: baseline; gap: 12px; padding: 8px 14px; border-bottom: 2px solid #d8b93a; }
     .portalbar b { font-size: 14px; letter-spacing: .02em; }
     .portalbar span { color: #b9c9d8; font-size: 11px; }
+    .portal-options { padding: 9px 14px 10px; border-bottom: 1px solid #284a67; background: #163852; }
+    .portal-options b { display: block; margin-bottom: 5px; color: #ffd97a; font-size: 11px; }
+    .portal-options a { display: inline-block; margin: 0 5px 3px 0; padding: 3px 8px; color: #152c40; border: 2px outset #d4d0c8; background: #e8e4d8; font-size: 11px; font-weight: bold; text-decoration: none; }
+    .portal-options a:active { border-style: inset; }
     iframe.workstation { flex: 1; width: 100%; min-height: 0; border: 0; background: #fff; }
   </style>
 </head>
 <body>
   <div class="portalbar"><b>Demo Credit Union · Member Servicing</b><span>Synthetic training environment — no real member data</span></div>
+  <div class="portal-options" aria-label="Workstation options"><b>Workstation options</b><a href="/servicing">Member Search</a><a href="/servicing/overview">Member &amp; Account Overview</a><a href="/servicing/service-requests">Service Requests</a><a href="/servicing/branch-directory">Branch Directory</a><a href="/servicing/teller-totals">Teller Totals</a></div>
   <iframe class="workstation" title="Member Servicing Area" src="/servicing"></iframe>
 </body>
 </html>`;
@@ -127,11 +132,69 @@ const MEMBER_PROFILES: Record<string, MemberProfile> = {
   },
 };
 
+const SERVICE_REQUESTS = [
+  { id: 'SR-1048', memberId: '12345', opened: '2026-09-09', topic: 'Address update review', status: 'Open' },
+  { id: 'SR-1031', memberId: '12345', opened: '2026-08-22', topic: 'Card delivery question', status: 'Closed' },
+  { id: 'SR-0992', memberId: '77777', opened: '2026-08-05', topic: 'Statement copy request', status: 'Pending member' },
+];
+
+const BRANCHES = [
+  { name: 'Downtown', code: '04', address: '18 Market Street, Riverton', hours: 'Mon–Fri 8:30 AM–5:00 PM', phone: '(555) 010-0404' },
+  { name: 'Northside', code: '07', address: '250 North Avenue, Riverton', hours: 'Mon–Sat 9:00 AM–4:00 PM', phone: '(555) 010-0707' },
+  { name: 'Lakeside', code: '11', address: '72 Harbor Road, Riverton', hours: 'Mon–Fri 9:00 AM–5:00 PM', phone: '(555) 010-1111' },
+];
+
 function memberFor(memberId: string): MemberProfile {
   return MEMBER_PROFILES[memberId] ?? {
     name: 'Valued Member', since: '—', balance: '$0.00', available: '$0.00',
     contact: 'On file', phone: 'On file', transactions: [],
   };
+}
+
+function memberIdForQuery(value: string): string | undefined {
+  const query = value.trim().toLowerCase();
+  if (!query) return undefined;
+  if (MEMBER_PROFILES[query]) return query;
+  return Object.entries(MEMBER_PROFILES).find(([, profile]) => profile.name.toLowerCase() === query)?.[0];
+}
+
+function overviewContent(memberQuery = ''): string {
+  const query = escapeHtml(memberQuery);
+  const memberId = memberIdForQuery(memberQuery);
+  if (!memberQuery) {
+    return '<h1>Member &amp; Account Overview</h1>' +
+      '<p class="muted">Open a synthetic member record by ID or exact name. This screen is read-only.</p>' +
+      '<form method="get" action="/servicing/overview"><table class="form-table"><tr><th><label for="overview-member">Member ID or Name</label></th><td><input id="overview-member" name="memberId" type="text" value="" autocomplete="off" required></td></tr></table><button type="submit">Open Overview</button></form>';
+  }
+  if (!memberId) {
+    return '<h1>Member &amp; Account Overview</h1><p class="outcome">MEMBER_NOT_FOUND</p><p>No synthetic member matched <b>' + query + '</b>.</p><p class="backlink"><a href="/servicing/overview">Try another search</a></p>';
+  }
+  const id = escapeHtml(memberId);
+  const profile = memberFor(memberId);
+  return '<h1>Member &amp; Account Overview</h1>' +
+    '<p class="backlink"><a href="/servicing/overview">« New Overview Search</a> · <a href="/servicing/member/' + id + '/summary">Full Member Summary</a></p>' +
+    '<table class="grid"><caption>Member overview</caption><tr><th>Member ID</th><td>' + id + '</td></tr><tr><th>Member Name</th><td>' + escapeHtml(profile.name) + '</td></tr><tr><th>Branch</th><td>04 — Downtown</td></tr><tr><th>Status</th><td>Active</td></tr></table>' +
+    '<table class="grid"><caption>Available accounts</caption><thead><tr><th>Account</th><th>Balance / status</th><th>Open</th></tr></thead><tbody>' +
+      '<tr><td>Share Savings</td><td>' + escapeHtml(profile.balance) + '</td><td><a href="/servicing/member/' + id + '/accounts/savings">View</a></td></tr>' +
+      '<tr><td>Loan Accounts</td><td>' + escapeHtml(profile.loans?.length ? profile.loans[0].status : 'None') + '</td><td><a href="/servicing/member/' + id + '/accounts/loans">View</a></td></tr>' +
+    '</tbody></table>';
+}
+
+function serviceRequestsContent(memberQuery = '', statusFilter = ''): string {
+  const memberId = memberIdForQuery(memberQuery);
+  const visible = SERVICE_REQUESTS.filter((request) => (!memberId || request.memberId === memberId) && (!statusFilter || request.status === statusFilter));
+  const rows = visible.map((request) => '<tr><td>' + escapeHtml(request.id) + '</td><td>' + escapeHtml(request.memberId) + '</td><td>' + escapeHtml(request.opened) + '</td><td>' + escapeHtml(request.topic) + '</td><td>' + escapeHtml(request.status) + '</td></tr>').join('');
+  const query = escapeHtml(memberQuery);
+  return '<h1>Service Requests</h1><p class="muted">Read-only queue of synthetic member requests. No request can be changed from this screen.</p>' +
+    '<form method="get" action="/servicing/service-requests"><table class="form-table"><tr><th><label for="service-member">Member ID or Name (optional)</label></th><td><input id="service-member" name="memberId" type="text" value="' + query + '" autocomplete="off"></td></tr><tr><th><label for="service-status">Status</label></th><td><select id="service-status" name="status"><option value="">All statuses</option><option value="Open"' + (statusFilter === 'Open' ? ' selected' : '') + '>Open</option><option value="Pending member"' + (statusFilter === 'Pending member' ? ' selected' : '') + '>Pending member</option><option value="Closed"' + (statusFilter === 'Closed' ? ' selected' : '') + '>Closed</option></select></td></tr></table><button type="submit">Filter Requests</button></form>' +
+    '<table class="grid" aria-label="Service requests"><caption>Service request queue</caption><thead><tr><th>Request</th><th>Member ID</th><th>Opened</th><th>Topic</th><th>Status</th></tr></thead><tbody>' + (rows || '<tr><td colspan="5">No requests found for that member.</td></tr>') + '</tbody></table>';
+}
+
+function branchDirectoryContent(city = ''): string {
+  const query = escapeHtml(city);
+  const visible = city ? BRANCHES.filter((branch) => (branch.name + ' ' + branch.address + ' Riverton').toLowerCase().includes(city.toLowerCase())) : BRANCHES;
+  const rows = visible.map((branch) => '<tr><td>' + escapeHtml(branch.code) + '</td><td>' + escapeHtml(branch.name) + '</td><td>' + escapeHtml(branch.address) + '</td><td>' + escapeHtml(branch.hours) + '</td><td>' + escapeHtml(branch.phone) + '</td></tr>').join('');
+  return '<h1>Branch Directory</h1><p class="muted">Synthetic branch locations and hours for the Member Servicing workstation.</p><form method="get" action="/servicing/branch-directory"><table class="form-table"><tr><th><label for="branch-city">City or branch</label></th><td><input id="branch-city" name="city" type="search" value="' + query + '" placeholder="Riverton" autocomplete="off"></td></tr></table><button type="submit">Find Branches</button></form><table class="grid" aria-label="Branch directory"><caption>Branch directory</caption><thead><tr><th>Code</th><th>Branch</th><th>Address</th><th>Hours</th><th>Phone</th></tr></thead><tbody>' + (rows || '<tr><td colspan="5">No branches matched that search.</td></tr>') + '</tbody></table>';
 }
 
 function parseDateOnly(value: string | undefined): string | undefined {
@@ -317,7 +380,7 @@ function page(title: string, content: string, _opts: { breadcrumb?: string } = {
     <td><h1>Demo Credit Union · Member Servicing</h1><div class="sub">Legacy servicing workstation · Core host MEMSERV v4.2 · All records synthetic</div></td>
     <td class="session">Operator <b>TELLER-07</b> · Branch <b>04</b><br>Session <b>legacy-demo</b> · Screen <b>${escapeHtml(title)}</b></td>
   </tr></table></div>
-  <div class="menubar"><div><a href="/servicing">Member Search</a><a href="/servicing/teller-totals">Teller Totals</a><span class="menu-idle">Reports »</span><a href="/servicing/end-session">End Session</a></div></div>
+  <div class="menubar"><div><a href="/servicing">Member Search</a><a href="/servicing/overview">Member &amp; Account Overview</a><a href="/servicing/service-requests">Service Requests</a><a href="/servicing/branch-directory">Branch Directory</a><a href="/servicing/teller-totals">Teller Totals</a><a href="/servicing/end-session">End Session</a></div></div>
   <main><div class="panel"><div class="panel-title">${escapeHtml(title)}</div><div class="panel-body">${content}</div></div></main>
   <div class="statusbar"><div>Workstation TELLER-07 · Branch 04 · Host MEMSERV v4.2 · Help desk x4419</div></div>
 </body>
@@ -346,6 +409,21 @@ export async function buildApp(): Promise<FastifyInstance> {
       <button type="submit">Search</button>
     </form>
   `, 'Member Search'));
+
+  app.get('/servicing/overview', async (request, reply) => {
+    const query = request.query as { memberId?: string };
+    return html(reply, 'Member & Account Overview', overviewContent(query.memberId?.trim() ?? ''), 'Member &amp; Account Overview');
+  });
+
+  app.get('/servicing/service-requests', async (request, reply) => {
+    const query = request.query as { memberId?: string; status?: string };
+    return html(reply, 'Service Requests', serviceRequestsContent(query.memberId?.trim() ?? '', query.status?.trim() ?? ''), 'Service Requests');
+  });
+
+  app.get('/servicing/branch-directory', async (request, reply) => {
+    const query = request.query as { city?: string };
+    return html(reply, 'Branch Directory', branchDirectoryContent(query.city?.trim() ?? ''), 'Branch Directory');
+  });
 
   app.post('/servicing/member-search', async (request, reply) => {
     const body = request.body as { memberId?: string };
@@ -463,7 +541,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       <h1>Member Summary</h1>
       <p class="backlink"><a href="/servicing">« New Search</a></p>
       <p class="kv">Member ID: ${id}</p>
-      <nav class="tabs"><a href="/servicing/member/${id}/accounts">Accounts</a></nav>
+      <nav class="tabs"><a href="/servicing/member/${id}/accounts">Accounts</a><a href="/servicing/service-requests?memberId=${encodeURIComponent(memberId)}">Member Service Requests</a></nav>
       <table class="grid"><caption>Member record</caption>
         <tr><th>Member ID</th><td>${id}</td></tr>
         <tr><th>Member Name</th><td>${escapeHtml(profile.name)}</td></tr>

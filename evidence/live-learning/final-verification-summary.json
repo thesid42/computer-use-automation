@@ -1,0 +1,99 @@
+{
+  "generatedAt": "2026-09-14T05:05:59.7610253Z",
+  "provider": "https://openrouter.ai/api/v1",
+  "model": "nex-agi/nex-n2.5-mini:free",
+  "observationMode": "accessibility",
+  "verification": [
+    {
+      "report": "find-branches-matching-northside.json",
+      "runId": "run-1acb61ac-717f-4d6d-a494-b2e8e790dfa8",
+      "status": "succeeded",
+      "mode": "discovery",
+      "modelId": "nex-agi/nex-n2.5-mini:free",
+      "observationMode": null,
+      "intentModelCalls": 1,
+      "llmCalls": 5,
+      "createdAt": "2026-09-14T04:37:57.329Z",
+      "lastEventAt": "2026-09-14T04:38:04.601Z",
+      "checkpointVerified": true,
+      "output": "Branch directory\nCode | Branch | Address | Hours | Phone\n07 | Northside | 250 North Avenue, Riverton | Mon–Sat 9:00 AM–4:00 PM | (555) 010-[REDACTED]"
+    },
+    {
+      "report": "find-branches-matching-lakeside.json",
+      "runId": "run-cf697191-40e9-4261-aa70-5b63c3950c67",
+      "status": "succeeded",
+      "mode": "replay",
+      "modelId": "nex-agi/nex-n2.5-mini:free",
+      "observationMode": null,
+      "intentModelCalls": 0,
+      "llmCalls": 0,
+      "createdAt": "2026-09-14T04:38:21.86Z",
+      "lastEventAt": "2026-09-14T04:38:23.409Z",
+      "checkpointVerified": true,
+      "output": "Branch directory\nCode | Branch | Address | Hours | Phone\n11 | Lakeside | 72 Harbor Road, Riverton | Mon–Fri 9:00 AM–5:00 PM | (555) 010-[REDACTED]"
+    },
+    {
+      "report": "show-service-requests-for-member-12345.json",
+      "runId": "run-6978bf03-8ff0-4e30-b094-4977cf9c4856",
+      "status": "succeeded",
+      "mode": "discovery",
+      "modelId": "nex-agi/nex-n2.5-mini:free",
+      "observationMode": "accessibility",
+      "intentModelCalls": 1,
+      "llmCalls": 6,
+      "createdAt": "2026-09-14T04:53:03.648Z",
+      "lastEventAt": "2026-09-14T04:53:13.744Z",
+      "checkpointVerified": true,
+      "output": "Service request queue\nRequest | Member ID | Opened | Topic | Status\nSR-[REDACTED] | [REDACTED] | 2026-09-09 | Address update review | Open\nSR-[REDACTED] | [REDACTED] | 2026-08-22 | Card delivery question | Closed"
+    },
+    {
+      "report": "show-service-requests-for-member-77777.json",
+      "runId": "run-fb7b2e23-3008-4766-9c79-5a3e7de842cc",
+      "status": "succeeded",
+      "mode": "replay",
+      "modelId": "nex-agi/nex-n2.5-mini:free",
+      "observationMode": "accessibility",
+      "intentModelCalls": 0,
+      "llmCalls": 0,
+      "createdAt": "2026-09-14T05:03:45.893Z",
+      "lastEventAt": "2026-09-14T05:03:48.305Z",
+      "checkpointVerified": true,
+      "output": "Service request queue\nRequest | Member ID | Opened | Topic | Status\nSR-[REDACTED] | [REDACTED] | 2026-08-05 | Statement copy request | Pending member"
+    },
+    {
+      "report": "find-branches-matching-lakeside-compiled-replay.json",
+      "sourceTrace": "run-1acb61ac-717f-4d6d-a494-b2e8e790dfa8",
+      "runId": null,
+      "status": "succeeded",
+      "mode": "direct_replay",
+      "modelId": null,
+      "observationMode": "accessibility",
+      "intentModelCalls": 0,
+      "llmCalls": 0,
+      "createdAt": null,
+      "lastEventAt": "2026-09-14T05:04:49.5Z",
+      "checkpointVerified": true,
+      "output": "Branch directory\nCode | Branch | Address | Hours | Phone\n11 | Lakeside | 72 Harbor Road, Riverton | Mon–Fri 9:00 AM–5:00 PM | (555) 010-[REDACTED]"
+    }
+  ],
+  "artifacts": {
+    "branchCompiled": "find-branches-matching-northside-compiled-artifact.json",
+    "branchRuntime": "companion/runtime/live/artifacts/workflow-baa163fa-bc49-4ecc-9f1a-2893a3595570.json",
+    "branchOriginalBackup": "find-branches-matching-northside-original-runtime-artifact.json",
+    "serviceCompiled": "show-service-requests-for-member-12345-compiled-artifact.json",
+    "serviceRuntime": "companion/runtime/live/artifacts/workflow-6ade6b80-b28f-4b75-93de-694a424f1fd5.json"
+  },
+  "branchCleanup": {
+    "method": "compileCapability over genuine run-1acb61ac-717f-4d6d-a494-b2e8e790dfa8 action events, then direct UI replay with Lakeside",
+    "cleanArtifactReplayed": true,
+    "runtimeArtifactReplaced": true,
+    "originalRuntimeArtifactBackedUp": true
+  },
+  "artifactChecks": {
+    "branchCompiledHasDynamicValue": false,
+    "branchCompiledHasDynamicQuery": false,
+    "serviceCompiledHasMemberValue": false,
+    "serviceCompiledHasDynamicQuery": false,
+    "liveReportsCredentialMarkers": false
+  }
+}

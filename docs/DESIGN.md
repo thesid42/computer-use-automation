@@ -2,11 +2,11 @@
 
 **Status:** final MVP design; fresh verification is tracked in [MVP-ACCEPTANCE.md](MVP-ACCEPTANCE.md).
 
-The product demonstrates the path from a natural-language request to a reusable UI automation. A model discovers a workflow once, the system records a typed capability, and later runs replay that capability without an LLM deciding what to do.
+The product demonstrates the path from a natural-language request to a reusable UI automation. A model discovers a workflow once, the system records a typed capability, and later requests can reuse that capability without an LLM deciding each replay action.
 
 ## 1. Product definition
 
-The Automation Companion is a local operator workspace for discovering and reusing automations against a configured back-office application. The operator can start a new discovery, browse run history, open a saved automation, edit its title and description, archive or restore it, and start a typed replay from its detail view. A Needs attention view explains blocked runs and exposes same-session human takeover.
+The Automation Companion is a local operator workspace for discovering and reusing automations against a configured back-office application. The operator can describe a request, answer a clarification, browse run history, open a saved automation, edit its title and description, archive or restore it, and start a free-text replay from its detail view. A Needs attention view explains blocked runs and exposes same-session human takeover.
 
 The repository contains two independent applications:
 
@@ -15,37 +15,40 @@ The repository contains two independent applications:
 
 The companion reaches the target through its visible browser UI. The target offers no business API to the companion. The companion does not import target source, read its data store, or use hidden automation hooks. Companion HTTP endpoints are internal workspace/library routes and do not bypass the target UI.
 
-The target currently exposes three supported read-only workflow families:
+The target exposes bounded read-only member-servicing destinations:
 
 - savings balance lookup;
 - savings transaction history search;
-- loan account payoff quote.
+- loan account payoff quote;
+- member and account overview;
+- service request lookup;
+- branch directory lookup.
 
-The library and artifact contracts can retain more compatible saved workflows, but discovery and adapters support these three families in this MVP. The current main runtime is seeded with one savings-balance record; multi-workflow storage and API behavior are covered by local tests. Unsupported or ambiguous requests stop with clarification rather than inventing a capability.
+The library and artifact contracts can retain more compatible saved workflows. The current main runtime retains a historically learned savings-balance artifact for local review; it does not seed production recipes. Multi-workflow storage and API behavior are covered by local tests. Unsupported or ambiguous requests stop with clarification rather than inventing a capability.
 
 ## 2. Scope and product behavior
 
 The MVP includes:
 
-- a New automation discovery dialog accepting a plain-language goal;
+- a request-first home composer and Teach a task discovery dialog accepting a plain-language goal;
 - one configured target profile and one genuine LLM-driven discovery path;
 - a durable multi-workflow library with active and archived metadata;
-- automation detail showing description, ordered steps, typed inputs and outputs, and a replay form;
+- automation detail showing description, ordered steps, checkpoints, and a free-text replay form with technical inputs and outputs behind Automation details;
 - editable title and description, archive, and restore operations;
 - deterministic replay through a typed workflow-run endpoint and a local replay CLI;
 - searchable run history with result, mode, activity, and redacted evidence;
 - a Needs attention view with same-session human takeover and resume;
 - policy checks, structured JSONL events, screenshots, and namespaced runtime storage.
 
-A normal natural-language task does not require the operator to choose discovery versus replay. The Goal Controller matches an active compatible workflow when possible and runs discovery on a miss. The automation detail form is the explicit path when the operator already knows which saved workflow to run.
+A normal natural-language task does not require the operator to choose discovery versus replay. The Goal Controller matches an active compatible workflow when possible and runs discovery on a miss. If required information is absent, the API returns a conversation ID and a question; the next answer resumes the same request.
 
 Persistence is local and single-process. Workflow metadata is durable and user-editable. The executable, versioned capability artifact and run evidence live in a separate runtime namespace and are linked by workflow ID/version. Archived workflows remain visible in the library but are excluded from automatic matching and direct replay until restored. A saved workflow record can be restored after restart; an interrupted browser session is not falsely presented as resumable.
 
 ## 3. User experience
 
-The workspace has Automations, Run history, and Needs attention navigation, with New automation as the primary action. The New automation dialog asks for a goal while configured application context supplies the target URL and execution mode. The result view leads with the requested balance, transaction rows, payoff amount, or business outcome and keeps technical evidence behind run detail.
+The workspace opens on New request. Its main composer asks for an outcome in ordinary language and can show a clarification question before learning or replay starts. Automations, Run history, and Needs attention are secondary navigation. Teach a task opens the same learning flow in a native dialog. The result view leads with the requested balance, transaction rows, payoff amount, or business outcome and keeps technical evidence behind run detail.
 
-The Automations list shows titles, descriptions, compatibility, input/output contracts, active or archived state, and last-run information. The detail view shows ordered steps and locator intent, permits title/description edits, and renders a fresh input form from the typed artifact. Submitting that form calls the selected workflow direct-run endpoint; member IDs and dates are entered for that invocation and are never copied from prior runs into browser storage or metadata.
+The Automations list shows titles, descriptions, active or archived state, and last-run information. The detail view shows ordered steps and checkpoint intent, permits title/description edits, and renders a free-text request form from the selected workflow context. Technical input/output fields remain inspectable in the collapsed contract. Member IDs and dates are entered for that invocation and are never copied from prior runs into browser storage or metadata.
 
 Run history is searchable by goal, workflow, status, and result text. Opening a run shows execution method, model-call count, typed result or failure, activity events, and available evidence. A run that needs a person carries its intervention reason, current step, latest target screenshot, and control owner. Take control claims the existing target session; Continue returns ownership to automation and causes a fresh observation before any next action.
 
@@ -81,7 +84,7 @@ Canonical companion endpoints are:
 
 | Endpoint | Purpose |
 | --- | --- |
-| POST /api/tasks | Start a natural-language task; a miss may run discovery and save a workflow. |
+| POST /api/tasks | Start a natural-language task; a miss may run discovery and save a workflow. A response with `status: "needs_input"` includes `message` and `conversationId`; the next answer sends its plain-language value with that ID. |
 | GET /api/workflows | List durable workflow metadata. |
 | GET /api/workflows/:id | Read one workflow's metadata, contract, detail, and recent workflow runs. |
 | PATCH /api/workflows/:id | Edit title, description, or archived state. |
@@ -90,7 +93,7 @@ Canonical companion endpoints are:
 | GET /api/runs/:runId/events | Read the structured activity feed. |
 | intervention routes | Claim, resume, abort, and inspect a same-session intervention. |
 
-The direct workflow-run endpoint accepts an input object such as { "inputs": { "member_id": "12345" } }. It does not call the LLM for decisions. A successful direct replay reports zero model decision calls. These endpoints are local internal APIs for the companion UI and automation library; they do not constitute a target business API.
+The everyday UI sends free text to `/api/tasks`; when a saved workflow is selected it also sends a context hint such as `{ "workflowId": "member.lookup-savings-balance" }`. The direct workflow-run endpoint remains available for API-level deterministic checks and accepts an input object such as { "inputs": { "member_id": "12345" } }. It does not call the LLM for decisions. A successful direct replay reports zero model decision calls. These endpoints are local internal APIs for the companion UI and automation library; they do not constitute a target business API.
 
 The SurfaceAdapter seam isolates perception and action from the recorded flow:
 
@@ -111,7 +114,7 @@ PlaywrightSurfaceAdapter is the implemented browser adapter. Accessibility, visi
 
 ## 6. Target application and supported workflows
 
-The target is a synthetic legacy-style application with an intentionally dense early-2000s workstation appearance: nested iframe, table-based layouts, small system fonts, numbered fields, blue/gray title strips, square beveled controls, full-page server forms, and a status bar. It has no data-testid attributes or hidden automation API.
+The target is a synthetic legacy-style application with an intentionally dense early-2000s workstation appearance: nested iframe, table-based layouts, small system fonts, numbered fields, blue/gray title strips, square beveled controls, full-page server forms, a discoverable workstation-options menu, and a status bar. It has no data-testid attributes or hidden automation API.
 
 The balance path is:
 
@@ -124,15 +127,17 @@ The transaction path follows Savings Account → Transaction History, fills Star
 
 The payoff path follows Accounts → Loan Accounts → Auto Loan or Personal Loan → Request Payoff Quote, fills As-of Date, and submits the read-only quote form. The result is Payoff quote review with As-of Date and Payoff Amount. Dates before loan opening or after 2026-12-31 return UNSUPPORTED_AS_OF_DATE; malformed dates return INVALID_AS_OF_DATE; a member without a loan returns NO_LOAN. No payment or account change can be submitted.
 
+The workstation home also links to Member & Account Overview (search by ID or exact name), Service Requests (filter by member and status), and Branch Directory (filter by branch or city). These pages return bounded synthetic tables through visible server forms, giving the browser agent more destinations to discover while preserving the same read-only policy boundary.
+
 Synthetic fixtures include 12345 for the normal paths, 77777 for the bounded transient search retry, and 88888 for same-session supervisor verification and human takeover. 54321 returns PERMISSION_DENIED and unknown IDs such as 40404 return MEMBER_NOT_FOUND. The visible Post Fee control is a read-only policy-denial fixture. These cases demonstrate runtime outcomes; they do not imply support for arbitrary member-servicing tasks or writes.
 
 ## 7. Discovery and recording
 
-The model receives a screenshot, URL/title/frame context, visible text, and temporary control references for the current observation. It returns one typed action at a time. Allowed actions are click, fill, selectOption, wait, extract, finish, requestHuman, and a constrained clickPoint fallback. Schema validation, policy, and the control lease run before the adapter acts. A malformed proposal can receive only bounded repair attempts; the model never supplies a persistent selector directly to replay.
+The model receives URL/title/frame context, visible text, grounded controls from the DOM/accessibility surface, and temporary control references for the current observation. With `LLM_OBSERVATION_MODE=multimodal`, the observation also includes the current screenshot; screenshots remain available as local evidence and handoff context in either mode. It returns one typed action at a time. Allowed actions are click, fill, selectOption, wait, extract, finish, requestHuman, and a constrained clickPoint fallback. Schema validation, policy, and the control lease run before the adapter acts. A malformed proposal can receive only bounded repair attempts; the model never supplies a persistent selector directly to replay.
 
 Every verified action becomes a sanitized event containing action kind, temporary reference, resolved role/name/text/frame, state fingerprints, outcome, timing where useful, and evidence references. Input provenance is stored as a reference such as fromInput: member_id; concrete member values are not compiled into artifacts. The raw model transcript is not the capability contract.
 
-The provider is one OpenAI-compatible adapter. LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, action mode, and bounded timeout are loaded from environment configuration. The API key is used for the request header only; it is not written to workflow metadata, artifacts, run events, screenshots, or summaries. Offline mode injects a scripted model/surface for deterministic local demonstrations and tests and is kept in a separate namespace from live artifacts.
+The provider is one OpenAI-compatible adapter. LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, action mode, observation mode, and bounded timeout are loaded from environment configuration. Accessibility observation is the default and sends grounded visible controls and text without an image; multimodal observation adds the screenshot to the model request. The API key is used for the request header only; it is not written to workflow metadata, artifacts, run events, screenshots, or summaries. Offline mode injects a scripted model/surface for deterministic local demonstrations and tests and is kept in a separate namespace from live artifacts.
 
 ## 8. Capability artifact
 
@@ -171,7 +176,7 @@ MEMBER_NOT_FOUND, PERMISSION_DENIED, ACCOUNT_NOT_FOUND, NO_TRANSACTIONS, NO_LOAN
 
 The artifact expresses intent and control behavior independently of how a surface is perceived. A browser adapter can resolve role/name, label, visible text, frames, or visual anchors; a legacy browser or desktop adapter can map the same action contract to accessibility or OS-native controls. The artifact does not assume a clean DOM or a target API.
 
-At larger scale, a library record would be scoped to an application family and tenant policy, while a tenant profile supplies base URL, branding aliases, version fingerprints, permissions, and narrowly scoped locator overrides. A shared artifact can be selected only when the target fingerprint is compatible. A mismatch creates a review or a specialized version; it never silently rewrites the shared artifact. This repository implements one target profile and three read-only workflow families, so tenant registry, cross-tenant rollout, and desktop adapters remain design seams rather than delivered infrastructure.
+At larger scale, a library record would be scoped to an application family and tenant policy, while a tenant profile supplies base URL, branding aliases, version fingerprints, permissions, and narrowly scoped locator overrides. A shared artifact can be selected only when the target fingerprint is compatible. A mismatch creates a review or a specialized version; it never silently rewrites the shared artifact. This repository implements one target profile and bounded read-only workflows, so tenant registry, cross-tenant rollout, and desktop adapters remain design seams rather than delivered infrastructure.
 
 ## 11. Safety and human handoff
 
@@ -186,13 +191,13 @@ AUTOMATION_CONTROL → INTERVENTION_OPEN → HUMAN_CONTROL
 
 When the runner is stuck, sees a required supervisor decision, or cannot safely recover, it pauses and records the run, capability, step, reason, state summary, current control owner, and a screenshot. The operator claims the lease, and the headed browser page already used by the runner is brought forward. Human click/change/navigation events are recorded with values redacted. Continue returns the lease to automation and forces a fresh observation; Abort closes the session safely. The local UI is a minimal operator surface, not a remote co-browsing product.
 
-All target records and packaged screenshots are synthetic. Keys belong in ignored environment files. Operational member identifiers and entered input values are masked in user-visible activity; the rendered transaction result retains its business dates so the operator can verify the filtered ledger. Artifacts store input references, not raw values; and hidden chain-of-thought is not persisted. Runtime, workflow metadata, and offline namespaces keep scripted artifacts separate from live execution and keep credentials out of artifacts and logs.
+All target records and packaged screenshots are synthetic. Keys belong in ignored environment files. Known sensitive fields such as operational member identifiers and entered input values are masked in persisted event and user-visible activity paths; the rendered transaction result retains its business dates so the operator can verify the filtered ledger. Artifacts store input references, not raw values; declared outputs may retain the business data needed for verification, and hidden chain-of-thought is not persisted. Runtime, workflow metadata, and offline namespaces keep scripted artifacts separate from live execution and keep credentials out of artifacts and logs.
 
 ## 12. Verification and evidence
 
-The repository preserves the original sanitized package under [evidence/](../evidence/), including a genuine provider-backed discovery summary, a compiled artifact, a zero-LLM replay, and a MEMBER_NOT_FOUND replay. That package records the 2026-09-10 OpenRouter run and contains no key or raw credentials. It is historical evidence for the discovery/replay vertical slice; it does not claim current coverage of the three expanded target workflows or library edit routes. Run the final-checkout commands in [MVP-ACCEPTANCE.md](MVP-ACCEPTANCE.md) before recording current pass status.
+The repository preserves the original sanitized package under [evidence/](../evidence/), including a genuine provider-backed discovery summary, a compiled artifact, a zero-LLM replay, and a MEMBER_NOT_FOUND replay. That package records the 2026-09-10 OpenRouter run and contains no key or raw credentials. It is historical evidence for the discovery/replay vertical slice; it does not claim current coverage of the newly added target destinations or library edit routes. Run the final-checkout commands in [MVP-ACCEPTANCE.md](MVP-ACCEPTANCE.md) before recording current pass status.
 
-The frozen local checks report 21/21 legacy target tests, 71/71 companion tests, passing root typecheck and build, and 2/2 scripted browser workflow tests. These checks do not represent fresh provider-backed discovery. The final transaction and loan provider attempts were unreliable: transaction JSON failed after 16 calls at the progress bound, a tool-retry run failed after 2 calls on unsupported or missing tool-call output, loan JSON reached Loan Accounts after 8 calls before a 60-second timeout, an improved-prompt transaction run failed after 12 calls during malformed action repair, and a same-Nano standard-route attempt returned HTTP 404 after one call. Only savings retains genuine historical provider evidence. The reproducible commands are:
+The frozen local checks report 24/24 legacy target tests, 102/102 companion tests, passing root typecheck and build, and 2/2 scripted browser workflow tests. Fresh Nex evidence now covers [service-request discovery](../evidence/live-learning/show-service-requests-for-member-12345.json), [changed-input service replay](../evidence/live-learning/show-service-requests-for-member-77777.json), [branch discovery](../evidence/live-learning/find-branches-matching-northside.json), and [changed-input branch replay](../evidence/live-learning/find-branches-matching-lakeside.json), each with verified target outcomes. The following Nano transaction and loan attempts are historical context: transaction JSON failed after 16 calls at the progress bound, a tool-retry run failed after 2 calls on unsupported or missing tool-call output, loan JSON reached Loan Accounts after 8 calls before a 60-second timeout, an improved-prompt transaction run failed after 12 calls during malformed action repair, and a same-Nano standard-route attempt returned HTTP 404 after one call. Transaction and loan flows remain scripted-test verified without a current provider claim. The current configured model is `nex-agi/nex-n2.5-mini:free` with `LLM_OBSERVATION_MODE=accessibility`; screenshots remain local evidence. The reproducible commands are:
 
 ~~~bash
 npm test

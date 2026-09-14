@@ -1,0 +1,158 @@
+{
+  "schemaVersion": 1,
+  "capabilityId": "learned.find-branches",
+  "version": "1.0.0",
+  "title": "Find branches matching",
+  "intentSignature": {
+    "intent": "find_branches",
+    "requiredConcepts": [
+      "find",
+      "branches",
+      "matching"
+    ],
+    "phrases": [
+      "Find branches matching {branch_query}"
+    ]
+  },
+  "inputs": [
+    {
+      "name": "branch_query",
+      "type": "string",
+      "sensitivity": "plain",
+      "validation": {
+        "minLength": 1,
+        "maxLength": 256
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "name": "results",
+      "type": "string"
+    }
+  ],
+  "businessOutcomes": [],
+  "risk": "READ_ONLY",
+  "policyProfile": {
+    "allowedOrigins": [
+      "http://localhost:3001",
+      "http://127.0.0.1:3001"
+    ],
+    "allowedRoutes": [
+      "/",
+      "/servicing*"
+    ],
+    "allowedActionKinds": [
+      "click",
+      "fill",
+      "selectOption",
+      "wait",
+      "extract",
+      "finish",
+      "requestHuman"
+    ],
+    "maxRisk": "READ_ONLY",
+    "controlOwner": "automation",
+    "blockedTargetNamePatterns": [
+      "Post Fee"
+    ]
+  },
+  "actions": [
+    {
+      "kind": "click",
+      "id": "click-branch-directory",
+      "target": {
+        "strategies": [
+          {
+            "role": "link",
+            "name": "Branch Directory",
+            "framePath": [],
+            "frameUrl": "http://127.0.0.1:3001/"
+          }
+        ]
+      },
+      "risk": "READ_ONLY"
+    },
+    {
+      "kind": "fill",
+      "id": "fill-city-or-branch",
+      "target": {
+        "strategies": [
+          {
+            "role": "textbox",
+            "name": "City or branch",
+            "label": "City or branch",
+            "framePath": [],
+            "frameUrl": "http://127.0.0.1:3001/servicing/branch-directory"
+          }
+        ]
+      },
+      "value": {
+        "fromInput": "branch_query"
+      },
+      "risk": "READ_ONLY"
+    },
+    {
+      "kind": "click",
+      "id": "click-find-branches",
+      "target": {
+        "strategies": [
+          {
+            "role": "button",
+            "name": "Find Branches",
+            "framePath": [],
+            "frameUrl": "http://127.0.0.1:3001/servicing/branch-directory"
+          }
+        ]
+      },
+      "risk": "READ_ONLY"
+    },
+    {
+      "kind": "extract",
+      "id": "extract-results",
+      "target": {
+        "strategies": [
+          {
+            "role": "table",
+            "name": "Branch directory",
+            "framePath": [],
+            "frameUrl": "http://127.0.0.1:3001/servicing/branch-directory"
+          }
+        ]
+      },
+      "output": "results",
+      "parseAs": "string"
+    },
+    {
+      "kind": "finish",
+      "id": "branch-query-branch_query-results",
+      "outputs": [
+        "results"
+      ],
+      "checkpoint": "Branch directory"
+    }
+  ],
+  "preconditions": [
+    "target is on an allowed origin",
+    "automation owns the session"
+  ],
+  "postconditions": [
+    "Branch directory"
+  ],
+  "waits": {
+    "defaultTimeoutMs": 10000,
+    "retries": 1
+  },
+  "extraction": [
+    {
+      "output": "results",
+      "actionId": "extract-results",
+      "parseAs": "string"
+    }
+  ],
+  "finalCheckpoint": "Branch directory",
+  "compatibility": {
+    "applicationFamily": "legacy-member-servicing",
+    "targetProfileId": "demo-app"
+  }
+}

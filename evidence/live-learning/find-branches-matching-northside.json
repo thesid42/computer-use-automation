@@ -1,0 +1,201 @@
+{
+  "goal": "Find branches matching Northside",
+  "runId": "run-1acb61ac-717f-4d6d-a494-b2e8e790dfa8",
+  "initial": {
+    "runId": "run-1acb61ac-717f-4d6d-a494-b2e8e790dfa8",
+    "status": "pending",
+    "intentModelCalls": 1
+  },
+  "final": {
+    "id": "run-1acb61ac-717f-4d6d-a494-b2e8e790dfa8",
+    "goal": "Find branches matching Northside",
+    "status": "succeeded",
+    "events": [
+      {
+        "runId": "pw-cf5976c3-52d9-4f2c-8784-d9590fd37c51",
+        "stepId": "click-branch-directory",
+        "kind": "action",
+        "action": {
+          "kind": "click",
+          "id": "click-branch-directory",
+          "target": {
+            "strategies": [
+              {
+                "ref": "control-1-0-3"
+              }
+            ]
+          },
+          "risk": "READ_ONLY"
+        },
+        "resolvedControl": {
+          "role": "link",
+          "name": "Branch Directory",
+          "text": "Branch Directory",
+          "framePath": [],
+          "frameUrl": "http://127.0.0.1:3001/",
+          "ref": "control-1-0-3"
+        },
+        "outcome": "succeeded",
+        "beforeFingerprint": "http://127.0.0.1:[REDACTED]/|Demo Credit Union · Member Servicing Synthetic training environment — no real member data Workstation options Member SearchMember & Account OverviewService RequestsBranch DirectoryTeller Totals SYNTHETIC TRAINING ENVIRONMENT — NO REAL MEMBER DATA — MEMSERV v4.2 DCU Demo Credit Union · Member Servicing Legacy servicing workstation · Core host MEMSERV v4.2 · All records synthetic Operator TELLER-07 · Branch 04 Session legacy-demo · Screen Member Search Member SearchMember & Account OverviewService|dialogs:",
+        "afterFingerprint": "http://127.0.0.1:[REDACTED]/servicing/branch-directory|SYNTHETIC TRAINING ENVIRONMENT — NO REAL MEMBER DATA — MEMSERV v4.2 DCU Demo Credit Union · Member Servicing Legacy servicing workstation · Core host MEMSERV v4.2 · All records synthetic Operator TELLER-07 · Branch 04 Session legacy-demo · Screen Branch Directory Member SearchMember & Account OverviewService RequestsBranch DirectoryTeller TotalsEnd Session Branch Directory Branch Directory Synthetic branch locations and hours for the Member Servicing workstation. City or branch Find Branches Bra|dialogs:",
+        "evidence": [
+          "E:\\Projects\\Innovate.ai\\companion\\runtime\\live\\evidence\\pw-cf5976c3-52d9-4f2c-8784-d9590fd37c51\\capture-000001.png"
+        ],
+        "timestamp": "2026-09-14T04:37:59.252Z"
+      },
+      {
+        "runId": "pw-cf5976c3-52d9-4f2c-8784-d9590fd37c51",
+        "stepId": "fill-city-or-branch",
+        "kind": "action",
+        "action": {
+          "kind": "fill",
+          "id": "fill-city-or-branch",
+          "target": {
+            "strategies": [
+              {
+                "ref": "control-3-0-13"
+              }
+            ]
+          },
+          "value": {
+            "fromInput": "branch_query"
+          },
+          "risk": "READ_ONLY"
+        },
+        "resolvedControl": {
+          "role": "textbox",
+          "name": "City or branch",
+          "label": "City or branch",
+          "framePath": [],
+          "frameUrl": "http://127.0.0.1:3001/servicing/branch-directory",
+          "ref": "control-3-0-13"
+        },
+        "outcome": "succeeded",
+        "beforeFingerprint": "http://127.0.0.1:[REDACTED]/servicing/branch-directory|SYNTHETIC TRAINING ENVIRONMENT — NO REAL MEMBER DATA — MEMSERV v4.2 DCU Demo Credit Union · Member Servicing Legacy servicing workstation · Core host MEMSERV v4.2 · All records synthetic Operator TELLER-07 · Branch 04 Session legacy-demo · Screen Branch Directory Member SearchMember & Account OverviewService RequestsBranch DirectoryTeller TotalsEnd Session Branch Directory Branch Directory Synthetic branch locations and hours for the Member Servicing workstation. City or branch Find Branches Bra|dialogs:",
+        "afterFingerprint": "http://127.0.0.1:[REDACTED]/servicing/branch-directory|SYNTHETIC TRAINING ENVIRONMENT — NO REAL MEMBER DATA — MEMSERV v4.2 DCU Demo Credit Union · Member Servicing Legacy servicing workstation · Core host MEMSERV v4.2 · All records synthetic Operator TELLER-07 · Branch 04 Session legacy-demo · Screen Branch Directory Member SearchMember & Account OverviewService RequestsBranch DirectoryTeller TotalsEnd Session Branch Directory Branch Directory Synthetic branch locations and hours for the Member Servicing workstation. City or branch Find Branches Bra|dialogs:",
+        "evidence": [
+          "E:\\Projects\\Innovate.ai\\companion\\runtime\\live\\evidence\\pw-cf5976c3-52d9-4f2c-8784-d9590fd37c51\\capture-000002.png"
+        ],
+        "timestamp": "2026-09-14T04:38:00.836Z"
+      },
+      {
+        "runId": "pw-cf5976c3-52d9-4f2c-8784-d9590fd37c51",
+        "stepId": "click-find-branches",
+        "kind": "action",
+        "action": {
+          "kind": "click",
+          "id": "click-find-branches",
+          "target": {
+            "strategies": [
+              {
+                "ref": "control-5-0-14"
+              }
+            ]
+          },
+          "risk": "READ_ONLY"
+        },
+        "resolvedControl": {
+          "role": "button",
+          "name": "Find Branches",
+          "text": "Find Branches",
+          "framePath": [],
+          "frameUrl": "http://127.0.0.1:3001/servicing/branch-directory",
+          "ref": "control-5-0-14"
+        },
+        "outcome": "succeeded",
+        "beforeFingerprint": "http://127.0.0.1:[REDACTED]/servicing/branch-directory|SYNTHETIC TRAINING ENVIRONMENT — NO REAL MEMBER DATA — MEMSERV v4.2 DCU Demo Credit Union · Member Servicing Legacy servicing workstation · Core host MEMSERV v4.2 · All records synthetic Operator TELLER-07 · Branch 04 Session legacy-demo · Screen Branch Directory Member SearchMember & Account OverviewService RequestsBranch DirectoryTeller TotalsEnd Session Branch Directory Branch Directory Synthetic branch locations and hours for the Member Servicing workstation. City or branch Find Branches Bra|dialogs:",
+        "afterFingerprint": "http://127.0.0.1:[REDACTED]/servicing/branch-directory?city=Northside|SYNTHETIC TRAINING ENVIRONMENT — NO REAL MEMBER DATA — MEMSERV v4.2 DCU Demo Credit Union · Member Servicing Legacy servicing workstation · Core host MEMSERV v4.2 · All records synthetic Operator TELLER-07 · Branch 04 Session legacy-demo · Screen Branch Directory Member SearchMember & Account OverviewService RequestsBranch DirectoryTeller TotalsEnd Session Branch Directory Branch Directory Synthetic branch locations and hours for the Member Servicing workstation. City or branch Find Branches Bra|dialogs:",
+        "evidence": [
+          "E:\\Projects\\Innovate.ai\\companion\\runtime\\live\\evidence\\pw-cf5976c3-52d9-4f2c-8784-d9590fd37c51\\capture-000003.png"
+        ],
+        "timestamp": "2026-09-14T04:38:02.354Z"
+      },
+      {
+        "runId": "pw-cf5976c3-52d9-4f2c-8784-d9590fd37c51",
+        "stepId": "extract-results",
+        "kind": "action",
+        "action": {
+          "kind": "extract",
+          "id": "extract-results",
+          "target": {
+            "strategies": [
+              {
+                "ref": "control-7-0-15"
+              }
+            ]
+          },
+          "output": "results",
+          "parseAs": "string"
+        },
+        "resolvedControl": {
+          "role": "table",
+          "name": "Branch directory",
+          "text": "Branch directoryCodeBranchAddressHoursPhone07Northside250 North Avenue, RivertonMon–Sat 9:00 AM–4:00 PM(555) 010-[REDACTED]",
+          "framePath": [],
+          "frameUrl": "http://127.0.0.1:3001/servicing/branch-directory?city=Northside",
+          "ref": "control-7-0-15"
+        },
+        "outcome": "succeeded",
+        "details": {
+          "output": "results"
+        },
+        "evidence": [
+          "E:\\Projects\\Innovate.ai\\companion\\runtime\\live\\evidence\\pw-cf5976c3-52d9-4f2c-8784-d9590fd37c51\\capture-000004.png"
+        ],
+        "timestamp": "2026-09-14T04:38:03.429Z"
+      },
+      {
+        "runId": "pw-cf5976c3-52d9-4f2c-8784-d9590fd37c51",
+        "stepId": "branch-query-northside-results",
+        "kind": "action",
+        "action": {
+          "kind": "finish",
+          "id": "branch-query-northside-results",
+          "outputs": [
+            "results"
+          ],
+          "checkpoint": "Branch directory"
+        },
+        "outcome": "succeeded",
+        "beforeFingerprint": "http://127.0.0.1:[REDACTED]/servicing/branch-directory?city=Northside|SYNTHETIC TRAINING ENVIRONMENT — NO REAL MEMBER DATA — MEMSERV v4.2 DCU Demo Credit Union · Member Servicing Legacy servicing workstation · Core host MEMSERV v4.2 · All records synthetic Operator TELLER-07 · Branch 04 Session legacy-demo · Screen Branch Directory Member SearchMember & Account OverviewService RequestsBranch DirectoryTeller TotalsEnd Session Branch Directory Branch Directory Synthetic branch locations and hours for the Member Servicing workstation. City or branch Find Branches Bra|dialogs:",
+        "afterFingerprint": "http://127.0.0.1:[REDACTED]/servicing/branch-directory?city=Northside|SYNTHETIC TRAINING ENVIRONMENT — NO REAL MEMBER DATA — MEMSERV v4.2 DCU Demo Credit Union · Member Servicing Legacy servicing workstation · Core host MEMSERV v4.2 · All records synthetic Operator TELLER-07 · Branch 04 Session legacy-demo · Screen Branch Directory Member SearchMember & Account OverviewService RequestsBranch DirectoryTeller TotalsEnd Session Branch Directory Branch Directory Synthetic branch locations and hours for the Member Servicing workstation. City or branch Find Branches Bra|dialogs:",
+        "evidence": [
+          "E:\\Projects\\Innovate.ai\\companion\\runtime\\live\\evidence\\pw-cf5976c3-52d9-4f2c-8784-d9590fd37c51\\capture-000005.png"
+        ],
+        "timestamp": "2026-09-14T04:38:04.601Z"
+      },
+      {
+        "runId": "run-1acb61ac-717f-4d6d-a494-b2e8e790dfa8",
+        "stepId": "result",
+        "kind": "result",
+        "outcome": "succeeded",
+        "details": {
+          "llmCalls": 5
+        },
+        "evidence": []
+      }
+    ],
+    "createdAt": "2026-09-14T04:37:57.329Z",
+    "executionMode": "live",
+    "intentModelCalls": 1,
+    "providerEndpoint": "https://openrouter.ai/api/v1",
+    "modelId": "nex-agi/nex-n2.5-mini:free",
+    "generationSettings": {
+      "temperature": 0,
+      "timeoutMs": 45000,
+      "actionMode": "tool"
+    },
+    "workflowId": "workflow-baa163fa-bc49-4ecc-9f1a-2893a3595570",
+    "result": {
+      "status": "succeeded",
+      "outputs": {
+        "results": "Branch directory\nCode | Branch | Address | Hours | Phone\n07 | Northside | 250 North Avenue, Riverton | Mon–Sat 9:00 AM–4:00 PM | (555) 010-[REDACTED]"
+      },
+      "checkpointVerified": true
+    },
+    "capabilityId": "learned.find-branches",
+    "sessionId": "pw-cf5976c3-52d9-4f2c-8784-d9590fd37c51",
+    "llmCalls": 5,
+    "mode": "discovery"
+  }
+}

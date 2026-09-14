@@ -117,6 +117,24 @@ function transactionModel(): ScriptedWorkflowModel {
   ]);
 }
 
+function savingsModel(): ScriptedWorkflowModel {
+  return new ScriptedWorkflowModel([
+    action('fill', 'enter-member-id', { label: 'Member ID' }, { value: { fromInput: 'member_id' }, risk: 'READ_ONLY' }),
+    action('click', 'submit-member-search', { role: 'button', name: 'Search' }, { risk: 'READ_ONLY' }),
+    action('wait', 'wait-search-results', undefined, { condition: 'text:Search Results', timeoutMs: 10000 }),
+    action('click', 'open-member-result', { text: 'Member Summary' }, { risk: 'READ_ONLY' }),
+    action('wait', 'wait-member-summary', undefined, { condition: 'text:Member Summary', timeoutMs: 10000 }),
+    action('click', 'open-accounts', { role: 'link', name: 'Accounts' }, { risk: 'READ_ONLY' }),
+    action('wait', 'wait-accounts', undefined, { condition: 'text:Accounts', timeoutMs: 10000 }),
+    action('click', 'open-savings-account', { text: 'Savings Account' }, { risk: 'READ_ONLY' }),
+    action('wait', 'wait-savings-account', undefined, { condition: 'text:Savings Account', timeoutMs: 10000 }),
+    action('click', 'open-balance-details', { role: 'link', name: 'Balance Details' }, { risk: 'READ_ONLY' }),
+    action('wait', 'wait-balance-details', undefined, { condition: 'text:Balance Details', timeoutMs: 10000 }),
+    action('extract', 'extract-savings-balance', { text: 'Current Balance' }, { output: 'current_savings_balance', parseAs: 'money' }),
+    action('finish', 'finish-savings-balance', undefined, { outputs: ['current_savings_balance'], checkpoint: 'Balance Details' })
+  ]);
+}
+
 function loanModel(): ScriptedWorkflowModel {
   return new ScriptedWorkflowModel([
     action('fill', 'enter-member-id', { label: 'Member ID' }, { value: { fromInput: 'member_id' }, risk: 'READ_ONLY' }),
@@ -191,7 +209,7 @@ describe('legacy target workflows through a real browser', () => {
       const callsBeforeReplay = model.calls;
       const august = await replay.run(learned.artifact, legacy.target, { member_id: '12345', start_date: '2026-08-01', end_date: '2026-08-31' });
       expect(model.calls).toBe(callsBeforeReplay);
-      expect(august.status).toBe('succeeded');
+      expect(august.status, diagnostic(model, trace, august)).toBe('succeeded');
       if (august.status !== 'succeeded') throw new Error('august_transaction_replay_failed');
       expect(august.checkpointVerified).toBe(true);
       expect(String(august.outputs.transactions)).toContain('2026-08-28');
@@ -200,6 +218,32 @@ describe('legacy target workflows through a real browser', () => {
 
       const empty = await replay.run(learned.artifact, legacy.target, { member_id: '12345', start_date: '2026-10-01', end_date: '2026-10-31' });
       expect(empty).toMatchObject({ status: 'business_outcome', code: 'NO_TRANSACTIONS' });
+    } finally {
+      if (discoverySession) await surface.close(discoverySession);
+      if (replay.lastSession && replay.lastSession.id !== discoverySession?.id) await surface.close(replay.lastSession);
+    }
+  }, 120000);
+
+  it('replays savings after a visible Retry Search recovery for member 77777', async () => {
+    const surface = new PlaywrightSurfaceAdapter({ evidenceRoot });
+    const policy = policyFor(legacy.target);
+    const lease = new ControlLease();
+    const model = savingsModel();
+    const intent = interpretGoal('Find member 12345 savings balance.');
+    const discovery = new DiscoveryRunner(surface, model, policy, lease, { maxActions: 20, retries: 1, maxElapsedMs: 60000 });
+    const recoveryEvents: RunEvent[] = [];
+    const replay = new ReplayRunner(surface, policy, lease, undefined, (event) => { recoveryEvents.push(event); });
+    let discoverySession: import('../src/surface/adapter.js').SessionHandle | undefined;
+    try {
+      const learned = await discovery.run(intent, legacy.target);
+      discoverySession = learned.session;
+      expect(learned.runResult.status).toBe('succeeded');
+      if (learned.runResult.status !== 'succeeded' || !learned.artifact) throw new Error('savings_discovery_did_not_compile');
+      const callsBeforeReplay = model.calls;
+      const result = await replay.run(learned.artifact, legacy.target, { member_id: '77777' });
+      expect(model.calls).toBe(callsBeforeReplay);
+      expect(result, JSON.stringify({ result, recoveryEvents })).toMatchObject({ status: 'succeeded', outputs: { current_savings_balance: { amount: '843.17', currency: 'USD' } } });
+      expect(recoveryEvents.some((event) => event.stepId.startsWith('recover-') && event.kind === 'action' && (event.action as { kind?: string } | undefined)?.kind === 'click')).toBe(true);
     } finally {
       if (discoverySession) await surface.close(discoverySession);
       if (replay.lastSession && replay.lastSession.id !== discoverySession?.id) await surface.close(replay.lastSession);

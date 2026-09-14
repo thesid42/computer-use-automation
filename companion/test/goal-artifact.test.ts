@@ -3,6 +3,7 @@ import { CapabilityMatcher } from '../src/goal/match.js';
 import { capabilitySchema } from '../src/artifact/schema.js';
 import { compileCapability } from '../src/artifact/compiler.js';
 import { interpretGoal } from '../src/goal/interpret.js';
+import { observedArtifact } from './helpers/fixtures.js';
 
 describe('deterministic capability matching', () => {
   const capability = {
@@ -22,12 +23,32 @@ describe('deterministic capability matching', () => {
     );
     expect(result.kind).toBe('ambiguous');
   });
+
+  it('matches multi-word plain inputs while keeping the family concepts stable', () => {
+    const branch = {
+      intent: 'branch_directory',
+      requiredConcepts: ['branch', 'directory'],
+      phrases: ['show branch directory in {branch_name}']
+    };
+    expect(new CapabilityMatcher([branch]).match('Show branch directory in San Jose')).toEqual({
+      kind: 'match', capability: branch, slots: { branch_name: 'San Jose' }
+    });
+    const contact = { intent: 'lookup_contact', requiredConcepts: ['contact'], phrases: ['find contact {contact_name}'] };
+    expect(new CapabilityMatcher([contact]).match("Find contact O'Connor")).toEqual({
+      kind: 'match', capability: contact, slots: { contact_name: "O'Connor" }
+    });
+    const intent = interpretGoal('Show the branch directory in New York.');
+    expect(intent.entities).toContainEqual(expect.objectContaining({ proposedName: 'branch_name', value: 'New York', sensitivity: 'plain' }));
+    expect(intent.requiredConcepts).not.toContain('new');
+    expect(intent.requiredConcepts).not.toContain('york');
+  });
 });
 
 describe('capability artifacts', () => {
   it('compiles a versioned artifact without persisting the raw member identifier', () => {
     const intent = interpretGoal('Look up member 12345 and tell me their savings balance.');
-    const artifact = compileCapability(intent, []);
+    expect(() => compileCapability(intent, [])).toThrow(/CAPABILITY_COMPILE_INVALID/);
+    const artifact = observedArtifact(intent);
     expect(() => capabilitySchema.parse(artifact)).not.toThrow();
     expect(JSON.stringify(artifact)).not.toContain('12345');
     expect(artifact.schemaVersion).toBe(1);

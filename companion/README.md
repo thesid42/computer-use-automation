@@ -10,7 +10,7 @@ The current target adapter supports three synthetic read-only workflow families:
 
 The library can store compatible workflows beyond these three records, but this MVP does not claim arbitrary task discovery or target coverage.
 
-The expanded transaction and loan flows are verified by scripted browser tests; fresh Nano provider discovery is currently unreliable (see the [acceptance checklist](../docs/MVP-ACCEPTANCE.md) for the recorded attempts).
+Fresh Nex provider evidence now verifies service-request discovery/replay and branch-directory discovery/replay with changed inputs. Transaction and loan flows remain verified by scripted browser tests; no current provider claim is made for them. Historical Nano attempts remain recorded in the [acceptance checklist](../docs/MVP-ACCEPTANCE.md).
 
 ## Run
 
@@ -53,9 +53,11 @@ The companion uses one OpenAI-compatible /chat/completions adapter. Set provider
 ~~~dotenv
 LLM_BASE_URL=https://openrouter.ai/api/v1
 LLM_API_KEY=replace-with-your-provider-key
-LLM_MODEL=nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
-LLM_ACTION_MODE=json
-LLM_TIMEOUT_MS=60000
+LLM_MODEL=nex-agi/nex-n2.5-mini:free
+LLM_ACTION_MODE=tool
+LLM_RESPONSE_FORMAT=none
+LLM_OBSERVATION_MODE=accessibility
+LLM_TIMEOUT_MS=45000
 DISCOVERY_MAX_ELAPSED_MS=300000
 TARGET_URL=http://127.0.0.1:3001
 ~~~
@@ -93,7 +95,7 @@ The standalone target documents the visible controls and exact routes in [legacy
 
 ## Workflow library and direct replay
 
-The browser workspace opens on the Automation library. New automation opens discovery in a dialog. Each saved workflow has a detail view with its description, ordered steps, typed input/output contract, editable title/description, archive/restore controls, recent runs, and a fresh input form. A workflow run always takes fresh input values; previous member IDs and dates are not stored in browser storage or copied into metadata.
+The browser workspace opens on the Automation library. New automation opens discovery in a dialog. Each saved workflow has a detail view with its description, ordered steps, typed input/output contract, editable title/description, archive/restore controls, recent runs, and a fresh input form. A workflow run always takes fresh input values; member IDs are not stored in browser storage, compiled actions retain input references, and sensitive entry fields are redacted in persisted activity.
 
 The direct run form calls POST /api/workflows/:id/runs with a body shaped like { "inputs": { "member_id": "12345" } }. It validates inputs, refuses archived workflows, runs the selected versioned artifact through the deterministic replay runner, and does not call the LLM for decisions. A successful direct replay reports llmCalls: 0.
 
@@ -128,6 +130,6 @@ npm run build
 npx vitest run test/playwright-workflows.test.ts
 ~~~
 
-The repository preserves a sanitized historical provider-backed discovery package under ../evidence/. It contains a real discovery summary, artifact, zero-LLM replay, and MEMBER_NOT_FOUND replay without a provider key. The separate [savings runtime verification](../evidence/savings-runtime-verification.json) records five direct replay/handoff scenarios plus one restart persistence check with zero model decision calls. Neither package claims fresh provider discovery or verification of the expanded transaction and loan flows; the final provider attempts for those families were unreliable, while their scripted browser coverage is recorded in [the acceptance checklist](../docs/MVP-ACCEPTANCE.md). Only savings has genuine historical provider evidence.
+The repository preserves a sanitized historical provider-backed discovery package under ../evidence/. It contains a real discovery summary, artifact, zero-LLM replay, and MEMBER_NOT_FOUND replay without a provider key. The separate [savings runtime verification](../evidence/savings-runtime-verification.json) records five direct replay/handoff scenarios plus one restart persistence check with zero model decision calls. Fresh [Nex live-learning evidence](../evidence/live-learning/show-service-requests-for-member-12345.json) covers service-request discovery, [the changed-input replay](../evidence/live-learning/show-service-requests-for-member-77777.json) covers the 77777 business outcome, and [branch discovery/replay](../evidence/live-learning/find-branches-matching-northside.json) plus [changed-input replay](../evidence/live-learning/find-branches-matching-lakeside.json) cover the branch directory. Transaction and loan flows remain scripted-test verified without a current provider claim.
 
 The local review workspace contains the previously learned savings workflow. A fresh checkout starts with an empty library until discovery or artifact loading. The library and internal API support multiple compatible workflow records, and local tests cover that behavior; the running workspace should not be described as pre-seeding one saved record for each target family.

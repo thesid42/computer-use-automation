@@ -14,11 +14,13 @@ export type RunRecord = {
   workflowId?: string;
   interventionId?: string;
   llmCalls?: number;
+  /** Provider calls used to interpret the free-text goal, kept separate from action decisions. */
+  intentModelCalls?: number;
   mode?: 'discovery' | 'replay' | 'clarification';
   executionMode?: 'offline' | 'live';
   providerEndpoint?: string;
   modelId?: string;
-  generationSettings?: { temperature: number; timeoutMs: number; actionMode: 'json' | 'tool' };
+  generationSettings?: { temperature: number; timeoutMs: number; actionMode: 'json' | 'tool'; observationMode?: 'multimodal' | 'accessibility' };
   createdAt: string;
 };
 

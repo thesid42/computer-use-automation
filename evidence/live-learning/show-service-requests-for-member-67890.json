@@ -1,0 +1,111 @@
+{
+  "goal": "Show service requests for member 67890",
+  "runId": "run-779155ed-026d-454d-98e0-3677a99d3082",
+  "initial": {
+    "runId": "run-779155ed-026d-454d-98e0-3677a99d3082",
+    "status": "pending",
+    "intentModelCalls": 0
+  },
+  "final": {
+    "id": "run-779155ed-026d-454d-98e0-3677a99d3082",
+    "goal": "Show service requests for member [REDACTED]",
+    "status": "business_outcome",
+    "events": [
+      {
+        "runId": "pw-acc9f6cd-1d22-47c2-a9ee-99187f29080a",
+        "stepId": "fill-member-id",
+        "kind": "action",
+        "action": {
+          "kind": "fill",
+          "id": "fill-member-id",
+          "target": {
+            "strategies": [
+              {
+                "role": "textbox",
+                "name": "Member ID",
+                "label": "Member ID",
+                "framePath": [
+                  "title:Member Servicing Area"
+                ],
+                "frameUrl": "http://127.0.0.1:3001/servicing"
+              }
+            ]
+          },
+          "value": {
+            "fromInput": "member_id"
+          },
+          "risk": "READ_ONLY"
+        },
+        "outcome": "succeeded",
+        "beforeFingerprint": "http://127.0.0.1:[REDACTED]/|Demo Credit Union · Member Servicing Synthetic training environment — no real member data Workstation options Member SearchMember & Account OverviewService RequestsBranch DirectoryTeller Totals SYNTHETIC TRAINING ENVIRONMENT — NO REAL MEMBER DATA — MEMSERV v4.2 DCU Demo Credit Union · Member Servicing Legacy servicing workstation · Core host MEMSERV v4.2 · All records synthetic Operator TELLER-07 · Branch 04 Session legacy-demo · Screen Member Search Member SearchMember & Account OverviewService|dialogs:",
+        "afterFingerprint": "http://127.0.0.1:[REDACTED]/|Demo Credit Union · Member Servicing Synthetic training environment — no real member data Workstation options Member SearchMember & Account OverviewService RequestsBranch DirectoryTeller Totals SYNTHETIC TRAINING ENVIRONMENT — NO REAL MEMBER DATA — MEMSERV v4.2 DCU Demo Credit Union · Member Servicing Legacy servicing workstation · Core host MEMSERV v4.2 · All records synthetic Operator TELLER-07 · Branch 04 Session legacy-demo · Screen Member Search Member SearchMember & Account OverviewService|dialogs:",
+        "evidence": [
+          "E:\\Projects\\Innovate.ai\\companion\\runtime\\live\\evidence\\pw-acc9f6cd-1d22-47c2-a9ee-99187f29080a\\capture-000001.png"
+        ],
+        "timestamp": "2026-09-14T04:39:12.907Z"
+      },
+      {
+        "runId": "pw-acc9f6cd-1d22-47c2-a9ee-99187f29080a",
+        "stepId": "click-search",
+        "kind": "action",
+        "action": {
+          "kind": "click",
+          "id": "click-search",
+          "target": {
+            "strategies": [
+              {
+                "role": "button",
+                "name": "Search",
+                "text": "Search",
+                "framePath": [
+                  "title:Member Servicing Area"
+                ],
+                "frameUrl": "http://127.0.0.1:3001/servicing"
+              }
+            ]
+          },
+          "risk": "READ_ONLY"
+        },
+        "outcome": "business_outcome",
+        "beforeFingerprint": "http://127.0.0.1:[REDACTED]/|Demo Credit Union · Member Servicing Synthetic training environment — no real member data Workstation options Member SearchMember & Account OverviewService RequestsBranch DirectoryTeller Totals SYNTHETIC TRAINING ENVIRONMENT — NO REAL MEMBER DATA — MEMSERV v4.2 DCU Demo Credit Union · Member Servicing Legacy servicing workstation · Core host MEMSERV v4.2 · All records synthetic Operator TELLER-07 · Branch 04 Session legacy-demo · Screen Member Search Member SearchMember & Account OverviewService|dialogs:",
+        "afterFingerprint": "http://127.0.0.1:[REDACTED]/|Demo Credit Union · Member Servicing Synthetic training environment — no real member data Workstation options Member SearchMember & Account OverviewService RequestsBranch DirectoryTeller Totals SYNTHETIC TRAINING ENVIRONMENT — NO REAL MEMBER DATA — MEMSERV v4.2 DCU Demo Credit Union · Member Servicing Legacy servicing workstation · Core host MEMSERV v4.2 · All records synthetic Operator TELLER-07 · Branch 04 Session legacy-demo · Screen Search Results Member SearchMember & Account OverviewServic|dialogs:",
+        "evidence": [
+          "E:\\Projects\\Innovate.ai\\companion\\runtime\\live\\evidence\\pw-acc9f6cd-1d22-47c2-a9ee-99187f29080a\\capture-000002.png"
+        ],
+        "details": {
+          "code": "MEMBER_NOT_FOUND"
+        },
+        "timestamp": "2026-09-14T04:39:13.162Z"
+      },
+      {
+        "runId": "run-779155ed-026d-454d-98e0-3677a99d3082",
+        "stepId": "result",
+        "kind": "result",
+        "outcome": "business_outcome",
+        "details": {
+          "llmCalls": 0
+        },
+        "evidence": []
+      }
+    ],
+    "createdAt": "2026-09-14T04:39:12.132Z",
+    "executionMode": "live",
+    "intentModelCalls": 0,
+    "providerEndpoint": "https://openrouter.ai/api/v1",
+    "modelId": "nex-agi/nex-n2.5-mini:free",
+    "generationSettings": {
+      "temperature": 0,
+      "timeoutMs": 45000,
+      "actionMode": "tool"
+    },
+    "workflowId": "workflow-7605fccd-675c-46d0-9bf6-274b61dca947",
+    "capabilityId": "learned.show-member-service-requests",
+    "mode": "replay",
+    "llmCalls": 0,
+    "result": {
+      "status": "business_outcome",
+      "code": "MEMBER_NOT_FOUND"
+    },
+    "sessionId": "pw-acc9f6cd-1d22-47c2-a9ee-99187f29080a"
+  }
+}

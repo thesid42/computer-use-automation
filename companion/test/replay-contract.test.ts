@@ -5,6 +5,7 @@ import { ControlLease } from '../src/handoff/lease.js';
 import { PolicyGate } from '../src/policy/gate.js';
 import { ReplayRunner } from '../src/replay/runner.js';
 import type { ActionResult, SessionHandle, SurfaceAdapter, SurfaceSnapshot, TargetProfile } from '../src/surface/adapter.js';
+import { observedArtifact } from './helpers/fixtures.js';
 
 class ContractSurface implements SurfaceAdapter {
   constructor(private readonly brokenEvidence = false) {}
@@ -19,7 +20,7 @@ class ContractSurface implements SurfaceAdapter {
 }
 
 const intent = interpretGoal('Look up member 12345 and tell me their savings balance.');
-const base = compileCapability(intent, []);
+const base = observedArtifact(intent);
 const target: TargetProfile = { id: 'demo-app', applicationFamily: 'legacy-member-servicing', url: 'http://localhost:3001' };
 
 function runner(surface: SurfaceAdapter, onEvent?: (event: unknown) => void): ReplayRunner {
