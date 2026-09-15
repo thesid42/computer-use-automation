@@ -1,43 +1,40 @@
 {
   "schemaVersion": 1,
-  "capabilityId": "member.lookup-savings-balance",
+  "capabilityId": "learned.show-service-requests-for-member",
   "version": "1.0.0",
-  "title": "Look up a member's savings balance",
+  "title": "Show service requests for",
   "intentSignature": {
-    "intent": "lookup_member_savings_balance",
+    "intent": "show_service_requests_for_member",
     "requiredConcepts": [
+      "show",
+      "service requests",
       "member",
-      "savings",
-      "balance"
+      "service",
+      "requests",
+      "for"
     ],
     "phrases": [
-      "look up member {member_id} savings balance",
-      "savings balance for member {member_id}"
+      "Show service requests for member {member_id}"
     ]
   },
   "inputs": [
     {
       "name": "member_id",
       "type": "string",
-      "sensitivity": "member_identifier",
+      "sensitivity": "sensitive_identifier",
       "validation": {
         "minLength": 1,
-        "maxLength": 64
+        "maxLength": 256
       }
     }
   ],
   "outputs": [
     {
-      "name": "current_savings_balance",
-      "type": "money",
-      "currency": "USD"
+      "name": "results",
+      "type": "string"
     }
   ],
-  "businessOutcomes": [
-    "MEMBER_NOT_FOUND",
-    "PERMISSION_DENIED",
-    "ACCOUNT_NOT_FOUND"
-  ],
+  "businessOutcomes": [],
   "risk": "READ_ONLY",
   "policyProfile": {
     "allowedOrigins": [
@@ -93,7 +90,6 @@
           {
             "role": "button",
             "name": "Search",
-            "text": "Search",
             "framePath": [
               "title:Member Servicing Area"
             ],
@@ -111,7 +107,6 @@
           {
             "role": "link",
             "name": "Member Summary",
-            "text": "Member Summary",
             "framePath": [
               "title:Member Servicing Area"
             ],
@@ -123,13 +118,12 @@
     },
     {
       "kind": "click",
-      "id": "click-accounts",
+      "id": "click-member-service-requests",
       "target": {
         "strategies": [
           {
             "role": "link",
-            "name": "Accounts",
-            "text": "Accounts",
+            "name": "Member Service Requests",
             "framePath": [
               "title:Member Servicing Area"
             ],
@@ -140,65 +134,30 @@
       "risk": "READ_ONLY"
     },
     {
-      "kind": "click",
-      "id": "click-savings-account",
-      "target": {
-        "strategies": [
-          {
-            "role": "link",
-            "name": "Savings Account",
-            "text": "Savings Account",
-            "framePath": [
-              "title:Member Servicing Area"
-            ],
-            "frameUrl": "http://127.0.0.1:3001/servicing/member/[REDACTED]/accounts"
-          }
-        ]
-      },
-      "risk": "READ_ONLY"
-    },
-    {
-      "kind": "click",
-      "id": "click-balance-details",
-      "target": {
-        "strategies": [
-          {
-            "role": "link",
-            "name": "Balance Details",
-            "text": "Balance Details",
-            "framePath": [
-              "title:Member Servicing Area"
-            ],
-            "frameUrl": "http://127.0.0.1:3001/servicing/member/[REDACTED]/accounts/savings"
-          }
-        ]
-      },
-      "risk": "READ_ONLY"
-    },
-    {
       "kind": "extract",
-      "id": "extract-balance",
+      "id": "extract-results",
       "target": {
         "strategies": [
           {
-            "relativeText": "Current Balance",
+            "role": "table",
+            "name": "Service requests",
             "framePath": [
               "title:Member Servicing Area"
             ],
-            "frameUrl": "http://127.0.0.1:3001/servicing/member/[REDACTED]/accounts/savings/balance"
+            "frameUrl": "http://127.0.0.1:3001/servicing/service-requests"
           }
         ]
       },
-      "output": "current_savings_balance",
-      "parseAs": "money"
+      "output": "results",
+      "parseAs": "string"
     },
     {
       "kind": "finish",
-      "id": "finish-balance",
+      "id": "service-requests-member_id",
       "outputs": [
-        "current_savings_balance"
+        "results"
       ],
-      "checkpoint": "Balance Details"
+      "checkpoint": "Service request queue"
     }
   ],
   "preconditions": [
@@ -206,7 +165,7 @@
     "automation owns the session"
   ],
   "postconditions": [
-    "Balance Details"
+    "Service request queue"
   ],
   "waits": {
     "defaultTimeoutMs": 10000,
@@ -214,12 +173,12 @@
   },
   "extraction": [
     {
-      "output": "current_savings_balance",
-      "actionId": "extract-balance",
-      "parseAs": "money"
+      "output": "results",
+      "actionId": "extract-results",
+      "parseAs": "string"
     }
   ],
-  "finalCheckpoint": "Balance Details",
+  "finalCheckpoint": "Service request queue",
   "compatibility": {
     "applicationFamily": "legacy-member-servicing",
     "targetProfileId": "demo-app"

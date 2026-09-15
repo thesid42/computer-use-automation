@@ -43,9 +43,7 @@
         "outcome": "succeeded",
         "beforeFingerprint": "http://127.0.0.1:[REDACTED]/|Demo Credit Union · Member Servicing Synthetic training environment — no real member data Workstation options Member SearchMember & Account OverviewService RequestsBranch DirectoryTeller Totals SYNTHETIC TRAINING ENVIRONMENT — NO REAL MEMBER DATA — MEMSERV v4.2 DCU Demo Credit Union · Member Servicing Legacy servicing workstation · Core host MEMSERV v4.2 · All records synthetic Operator TELLER-07 · Branch 04 Session legacy-demo · Screen Member Search Member SearchMember & Account OverviewService|dialogs:",
         "afterFingerprint": "http://127.0.0.1:[REDACTED]/|Demo Credit Union · Member Servicing Synthetic training environment — no real member data Workstation options Member SearchMember & Account OverviewService RequestsBranch DirectoryTeller Totals SYNTHETIC TRAINING ENVIRONMENT — NO REAL MEMBER DATA — MEMSERV v4.2 DCU Demo Credit Union · Member Servicing Legacy servicing workstation · Core host MEMSERV v4.2 · All records synthetic Operator TELLER-07 · Branch 04 Session legacy-demo · Screen Member Search Member SearchMember & Account OverviewService|dialogs:",
-        "evidence": [
-          "E:\\Projects\\Innovate.ai\\companion\\runtime\\live\\evidence\\pw-cdbe8796-220c-4751-a4f9-e09573888ef0\\capture-000001.png"
-        ],
+        "evidence": [],
         "timestamp": "2026-09-14T04:53:06.287Z"
       },
       {
@@ -77,9 +75,7 @@
         "outcome": "succeeded",
         "beforeFingerprint": "http://127.0.0.1:[REDACTED]/|Demo Credit Union · Member Servicing Synthetic training environment — no real member data Workstation options Member SearchMember & Account OverviewService RequestsBranch DirectoryTeller Totals SYNTHETIC TRAINING ENVIRONMENT — NO REAL MEMBER DATA — MEMSERV v4.2 DCU Demo Credit Union · Member Servicing Legacy servicing workstation · Core host MEMSERV v4.2 · All records synthetic Operator TELLER-07 · Branch 04 Session legacy-demo · Screen Member Search Member SearchMember & Account OverviewService|dialogs:",
         "afterFingerprint": "http://127.0.0.1:[REDACTED]/|Demo Credit Union · Member Servicing Synthetic training environment — no real member data Workstation options Member SearchMember & Account OverviewService RequestsBranch DirectoryTeller Totals SYNTHETIC TRAINING ENVIRONMENT — NO REAL MEMBER DATA — MEMSERV v4.2 DCU Demo Credit Union · Member Servicing Legacy servicing workstation · Core host MEMSERV v4.2 · All records synthetic Operator TELLER-07 · Branch 04 Session legacy-demo · Screen Search Results Member SearchMember & Account OverviewServic|dialogs:",
-        "evidence": [
-          "E:\\Projects\\Innovate.ai\\companion\\runtime\\live\\evidence\\pw-cdbe8796-220c-4751-a4f9-e09573888ef0\\capture-000002.png"
-        ],
+        "evidence": [],
         "timestamp": "2026-09-14T04:53:07.474Z"
       },
       {
@@ -111,9 +107,7 @@
         "outcome": "succeeded",
         "beforeFingerprint": "http://127.0.0.1:[REDACTED]/|Demo Credit Union · Member Servicing Synthetic training environment — no real member data Workstation options Member SearchMember & Account OverviewService RequestsBranch DirectoryTeller Totals SYNTHETIC TRAINING ENVIRONMENT — NO REAL MEMBER DATA — MEMSERV v4.2 DCU Demo Credit Union · Member Servicing Legacy servicing workstation · Core host MEMSERV v4.2 · All records synthetic Operator TELLER-07 · Branch 04 Session legacy-demo · Screen Search Results Member SearchMember & Account OverviewServic|dialogs:",
         "afterFingerprint": "http://127.0.0.1:[REDACTED]/|Demo Credit Union · Member Servicing Synthetic training environment — no real member data Workstation options Member SearchMember & Account OverviewService RequestsBranch DirectoryTeller Totals SYNTHETIC TRAINING ENVIRONMENT — NO REAL MEMBER DATA — MEMSERV v4.2 DCU Demo Credit Union · Member Servicing Legacy servicing workstation · Core host MEMSERV v4.2 · All records synthetic Operator TELLER-07 · Branch 04 Session legacy-demo · Screen Member Summary Member SearchMember & Account OverviewServic|dialogs:",
-        "evidence": [
-          "E:\\Projects\\Innovate.ai\\companion\\runtime\\live\\evidence\\pw-cdbe8796-220c-4751-a4f9-e09573888ef0\\capture-000003.png"
-        ],
+        "evidence": [],
         "timestamp": "2026-09-14T04:53:08.765Z"
       },
       {
@@ -145,9 +139,7 @@
         "outcome": "succeeded",
         "beforeFingerprint": "http://127.0.0.1:[REDACTED]/|Demo Credit Union · Member Servicing Synthetic training environment — no real member data Workstation options Member SearchMember & Account OverviewService RequestsBranch DirectoryTeller Totals SYNTHETIC TRAINING ENVIRONMENT — NO REAL MEMBER DATA — MEMSERV v4.2 DCU Demo Credit Union · Member Servicing Legacy servicing workstation · Core host MEMSERV v4.2 · All records synthetic Operator TELLER-07 · Branch 04 Session legacy-demo · Screen Member Summary Member SearchMember & Account OverviewServic|dialogs:",
         "afterFingerprint": "http://127.0.0.1:[REDACTED]/|Demo Credit Union · Member Servicing Synthetic training environment — no real member data Workstation options Member SearchMember & Account OverviewService RequestsBranch DirectoryTeller Totals SYNTHETIC TRAINING ENVIRONMENT — NO REAL MEMBER DATA — MEMSERV v4.2 DCU Demo Credit Union · Member Servicing Legacy servicing workstation · Core host MEMSERV v4.2 · All records synthetic Operator TELLER-07 · Branch 04 Session legacy-demo · Screen Service Requests Member SearchMember & Account OverviewServ|dialogs:",
-        "evidence": [
-          "E:\\Projects\\Innovate.ai\\companion\\runtime\\live\\evidence\\pw-cdbe8796-220c-4751-a4f9-e09573888ef0\\capture-000004.png"
-        ],
+        "evidence": [],
         "timestamp": "2026-09-14T04:53:10.480Z"
       },
       {
@@ -181,9 +173,7 @@
         "details": {
           "output": "results"
         },
-        "evidence": [
-          "E:\\Projects\\Innovate.ai\\companion\\runtime\\live\\evidence\\pw-cdbe8796-220c-4751-a4f9-e09573888ef0\\capture-000005.png"
-        ],
+        "evidence": [],
         "timestamp": "2026-09-14T04:53:12.140Z"
       },
       {
@@ -202,7 +192,7 @@
         "beforeFingerprint": "http://127.0.0.1:[REDACTED]/|Demo Credit Union · Member Servicing Synthetic training environment — no real member data Workstation options Member SearchMember & Account OverviewService RequestsBranch DirectoryTeller Totals SYNTHETIC TRAINING ENVIRONMENT — NO REAL MEMBER DATA — MEMSERV v4.2 DCU Demo Credit Union · Member Servicing Legacy servicing workstation · Core host MEMSERV v4.2 · All records synthetic Operator TELLER-07 · Branch 04 Session legacy-demo · Screen Service Requests Member SearchMember & Account OverviewServ|dialogs:",
         "afterFingerprint": "http://127.0.0.1:[REDACTED]/|Demo Credit Union · Member Servicing Synthetic training environment — no real member data Workstation options Member SearchMember & Account OverviewService RequestsBranch DirectoryTeller Totals SYNTHETIC TRAINING ENVIRONMENT — NO REAL MEMBER DATA — MEMSERV v4.2 DCU Demo Credit Union · Member Servicing Legacy servicing workstation · Core host MEMSERV v4.2 · All records synthetic Operator TELLER-07 · Branch 04 Session legacy-demo · Screen Service Requests Member SearchMember & Account OverviewServ|dialogs:",
         "evidence": [
-          "E:\\Projects\\Innovate.ai\\companion\\runtime\\live\\evidence\\pw-cdbe8796-220c-4751-a4f9-e09573888ef0\\capture-000006.png"
+          "screenshots/discovery-result.png"
         ],
         "timestamp": "2026-09-14T04:53:13.744Z"
       },
@@ -240,5 +230,11 @@
     "sessionId": "pw-cdbe8796-220c-4751-a4f9-e09573888ef0",
     "llmCalls": 6,
     "mode": "discovery"
+  },
+  "packaging": {
+    "artifact": "capability.json",
+    "screenshotPathsRelativeTo": "evidence/",
+    "omittedIntermediateScreenshotReferences": 5,
+    "note": "Original run metadata, actions, outcomes, and checkpoints are preserved. Only screenshot references were pruned and made package-relative."
   }
 }

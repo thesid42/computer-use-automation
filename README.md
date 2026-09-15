@@ -1,45 +1,28 @@
 # Computer-Use Automation System
 
-A focused take-home implementation of a record-once, replay-many computer-use system for a legacy back-office application.
+This repository is a small record-once, replay-many automation companion for a synthetic legacy member-servicing workstation. The operator writes an ordinary-language request in the companion. A request without a compatible saved workflow can be discovered by a model operating the target through Playwright. The verified actions become a typed capability artifact and a durable library record. Later requests use the saved artifact and replay deterministically, without a model choosing each action.
 
-The operator opens the companion workspace and describes a request in ordinary language. If no active saved workflow matches, an LLM discovers the flow by operating the target UI through Playwright. The observation can use grounded visible controls and text from the DOM/accessibility surface, or include a screenshot when multimodal mode is configured. The verified run is compiled into a typed, reviewable artifact and durable workflow metadata. Later requests can match a saved workflow or use its detail page's free-text run composer; replay remains deterministic without an LLM deciding each action.
+The target is deliberately a separate application. The companion imports no target source or data and calls no target business API; it reaches the target only through its configured, browser-visible URL. Both applications contain synthetic records and read-only workflows.
 
-The synthetic target includes these read-only paths:
+## Applications and evidence
 
-- savings balance lookup;
-- savings transaction history search by inclusive date range;
-- loan payoff quote as of a supplied date.
-- member and account overview;
-- service request lookup by member and status;
-- branch directory lookup by branch or city.
+- [legacy-demo/](legacy-demo/) is the standalone early-2000s-style target on port 3001. It uses nested frames, server-rendered forms, dense tables, and visible workstation navigation.
+- [companion/](companion/) is the request workspace, discovery/replay engine, workflow library, policy gate, evidence recorder, and human-handoff controller on port 3000.
+- [REPORT.md](REPORT.md) is the required short design report with the seven required sections.
 
-The first three paths are the measured workflow fixtures used by the local replay suite. The target also exposes bounded overview, service-request, branch-directory, and teller screens so a genuine discovery can learn from a broader legacy surface without the companion importing target data or source.
+The submission keeps one current live service-request discovery package plus a deterministic changed-input replay:
 
-Fresh Nex provider evidence now verifies service-request discovery/replay and branch-directory discovery/replay with changed inputs. Transaction and loan flows remain verified by scripted browser tests; no current provider claim is made for them. Historical Nano attempts remain recorded in the [acceptance checklist](docs/MVP-ACCEPTANCE.md).
+- [compiled capability](evidence/capability.json)
+- [discovery log](evidence/discovery.json)
+- [final replay log](evidence/replay.json)
+- [handoff summary](evidence/handoff-summary.json)
+- [discovery result screenshot](evidence/screenshots/discovery-result.png), [recovery screenshot](evidence/screenshots/replay-recovery.png), and [replay result screenshot](evidence/screenshots/replay-result.png)
 
-## Applications
+The discovery used `nex-agi/nex-n2.5-mini:free` with grounded accessibility observation. It learned the member service-request path for member 12345, including the address-update and card-delivery rows. The retained replay changed the member to 77777, recovered from one transient search failure, and returned the statement-copy request with zero model decision calls. Savings and branch workflows were also learned previously; their redundant evidence packages are omitted. Transaction and loan workflows have scripted browser coverage. The four workflows reserved below remain unlearned in the local library.
 
-- [legacy-demo/](legacy-demo/) is a standalone synthetic member-servicing target. It has its own process, package, tests, nested iframe, dense table UI, and visible server forms.
-- [companion/](companion/) is the standalone workspace, discovery/replay engine, workflow library, policy gate, evidence recorder, and human-handoff controller.
+## Prerequisites and install
 
-The companion and target share no source code or data. The companion reaches the target only through its configured URL and browser-visible UI. Its local /api routes are internal workspace/library routes; they are not hidden target business APIs.
-
-## Design documents
-
-- [Detailed design](docs/DESIGN.md)
-- [MVP acceptance checklist](docs/MVP-ACCEPTANCE.md)
-- [Workflows reserved for your next test](docs/FUTURE-WORKFLOW-TESTS.md)
-- [Required short report](REPORT.md)
-- [Target workflow reference](legacy-demo/README.md)
-
-## Prerequisites
-
-- Node.js 22+
-- npm
-- Chromium installed for Playwright when running a real browser
-- A provider API key only for live discovery; offline mode, direct replay, and tests do not need one
-
-## Install
+Use Node.js 22+, npm, and Chromium installed for Playwright. A provider key is needed only for a new live discovery; offline mode, deterministic replay, and tests do not need one.
 
 From the repository root:
 
@@ -48,25 +31,15 @@ npm run install:all
 npm exec --prefix companion playwright install chromium
 ~~~
 
-The first command installs the two application packages. The second installs the Chromium browser used by the live Playwright adapter.
+The first command installs both application packages. The second installs the browser used by the live Playwright adapter.
 
-## Environment
+## Configure live discovery
 
-The companion imports dotenv configuration automatically from its package working directory. Put the following in companion/.env whether you start it from the repository root or from companion/. The file is ignored by git and the key is sent only in the provider authorization header.
-
-PowerShell (safe when no companion/.env exists yet):
+The companion loads `companion/.env` through dotenv. Create the ignored file from the checked-in example, then add a user-provided key:
 
 ~~~powershell
 if (!(Test-Path companion/.env)) { Copy-Item companion/.env.example companion/.env }
 ~~~
-
-Bash (safe when no companion/.env exists yet):
-
-~~~bash
-test -f companion/.env || cp companion/.env.example companion/.env
-~~~
-
-Edit the copied file and add the user-provided key; the checked-in example contains no key.
 
 ~~~dotenv
 LLM_BASE_URL=https://openrouter.ai/api/v1
@@ -80,99 +53,114 @@ DISCOVERY_MAX_ELAPSED_MS=300000
 TARGET_URL=http://127.0.0.1:3001
 ~~~
 
-Use a real user-provided key for live discovery. Discovery is bounded to 300 seconds by default; DISCOVERY_MAX_ELAPSED_MS may set a value from 30 to 600 seconds. Do not put a key in an artifact, evidence file, or log.
+Discovery is bounded to 300 seconds by default; `DISCOVERY_MAX_ELAPSED_MS` accepts 30–600 seconds. The API key is used only in the provider authorization header. Never put it in an artifact, evidence file, or log.
 
-## Run
+## Run the two applications
 
-Start the independently runnable applications in separate terminals:
-
-Terminal 1:
+Start each process in its own terminal:
 
 ~~~bash
+# terminal 1
 npm run legacy
-~~~
 
-Terminal 2:
-
-~~~bash
+# terminal 2
 npm run companion
 ~~~
 
-Open http://127.0.0.1:3000. The target listens on http://127.0.0.1:3001 by default. TARGET_URL can point the companion at another compatible browser-visible target.
+Open `http://127.0.0.1:3000`. The target is `http://127.0.0.1:3001` unless `TARGET_URL` points to another compatible browser-visible target. Use the companion's **New request** box for live discovery; a successful unfamiliar request reports its progress and saves an automation. A matching request replays the saved artifact against the configured target.
 
-For a deterministic local demonstration with no API key, live provider, or target browser:
-
-~~~bash
-OFFLINE_DEMO=1 npm run companion
-~~~
-
-In PowerShell:
+For a deterministic demonstration without a provider or live target browser:
 
 ~~~powershell
 $env:OFFLINE_DEMO='1'
 npm run companion
 ~~~
 
-Offline artifacts and live artifacts use separate runtime namespaces.
+Offline and live runtime namespaces are separate.
 
-## Demo goals
+## Demo prompts and target surface
 
-Enter these in the New request composer or Teach a task dialog:
+Paste one of these into **New request**:
 
 ~~~text
 Look up member 12345 and tell me their current savings balance.
 Find transactions for member 12345 from 2026-09-01 through 2026-09-11 and show the filtered results.
 Get an as-of 2026-09-30 payoff quote for member 12345's auto loan.
+Show service requests for member 12345.
+Find branches matching Northside.
 ~~~
 
-The target's normal synthetic fixtures are member 12345 (success), 77777 (one transient search failure then Retry Search succeeds), and 88888 (same-session supervisor verification). Unknown 40404 returns MEMBER_NOT_FOUND; 54321 returns PERMISSION_DENIED. Transaction searches can return NO_TRANSACTIONS or INVALID_DATE_RANGE. Payoff requests can return NO_LOAN, INVALID_AS_OF_DATE, or UNSUPPORTED_AS_OF_DATE. The visible Post Fee control demonstrates policy denial and remains read-only.
+The target's main synthetic fixtures are member 12345 (Jordan Lee, savings balance $1,250.42, Auto Loan), member 77777 (Casey Morgan, first search temporarily fails and then succeeds through **Retry Search**), and member 88888 (visible supervisor verification in the same session). Member 40404 returns `MEMBER_NOT_FOUND`; member 54321 returns `PERMISSION_DENIED`. Empty and invalid date searches return `NO_TRANSACTIONS` or `INVALID_DATE_RANGE`; payoff requests return `NO_LOAN`, `INVALID_AS_OF_DATE`, or `UNSUPPORTED_AS_OF_DATE`. The visible **Post Fee** control is a read-only policy-denial fixture.
 
-## Direct deterministic replay
+The workstation exposes these visible destinations:
 
-After a workflow artifact exists, the detail page's free-text run composer sends a natural-language task with the selected workflow context. The API and CLI also expose the typed artifact contract for deterministic replay. A direct run does not invoke the LLM for decisions and reports llmCalls: 0 on success or failure metadata.
+| Destination | Route | Inputs or result |
+| --- | --- | --- |
+| Member search and summary | `/servicing` and `/servicing/member/:memberId/summary` | Member ID; accounts and member context |
+| Member and account overview | `/servicing/overview` | Member ID or exact name |
+| Service requests | `/servicing/service-requests` | Optional member/name and status filters |
+| Branch directory | `/servicing/branch-directory` | Branch or city filter |
+| Savings transactions | `/servicing/member/:memberId/accounts/savings/transactions` | Inclusive start and end dates |
+| Loan payoff | `/servicing/member/:memberId/accounts/loans/:loanId/payoff-quote` | As-of date; read-only quote |
+| Teller totals | `/servicing/teller-totals` | Drawer totals and transaction counts |
 
-The CLI can replay a saved artifact directly against a running target. From the repository root, using a live artifact:
+Four useful workflows remain reserved for future user-led discovery tests. They are prompts, not pre-seeded capabilities:
+
+| Workflow | Prompt | Check |
+| --- | --- | --- |
+| Transaction history | `Find transactions for member 12345 from 2026-09-01 to 2026-09-11.` | September 3, 7, and 10 rows only |
+| Loan payoff quote | `Get the loan payoff quote for member 12345 as of 2026-09-30.` | Read-only quote of $18,968.53 dated September 30 |
+| Member/account overview | `Show the member and account overview for member 12345.` | Jordan Lee and available savings/loan accounts |
+| Teller totals | `Show the teller drawer totals.` | Opening cash $12,000.00 and expected cash $14,654.50 |
+
+For each reserved test, verify the returned data and final checkpoint. A successful first run should create a library record; an incomplete or failed discovery must not create one. Change a member or date range for the replay check and expect zero action-model and intent-model calls for an exact saved-workflow request.
+
+## Run a goal, then replay the learned artifact
+
+With both apps running in live mode, run these commands in PowerShell. On a fresh checkout the first request performs real discovery; if the workflow is already saved locally, it replays instead. The second invocation uses the artifact saved by that run, with a different member input.
+
+~~~powershell
+$base = 'http://127.0.0.1:3000'
+$task = Invoke-RestMethod -Method Post -Uri "$base/api/tasks" -ContentType 'application/json' -Body '{"goal":"Show service requests for member 12345"}'
+$run = Invoke-RestMethod -Uri "$base/api/runs/$($task.runId)"
+$run | ConvertTo-Json -Depth 8
+if ($run.status -ne 'succeeded') { throw 'Discovery did not succeed; inspect the run before replaying.' }
+$workflowId = $run.workflowId
+$repeat = Invoke-RestMethod -Method Post -Uri "$base/api/workflows/$workflowId/runs" -ContentType 'application/json' -Body '{"inputs":{"member_id":"77777"}}'
+Invoke-RestMethod -Uri "$base/api/runs/$($repeat.runId)" | ConvertTo-Json -Depth 8
+~~~
+
+Expect `mode: discovery` on the first fresh run, and `mode: replay`, `llmCalls: 0`, a verified checkpoint, and the statement-copy row on the second. The 77777 replay exercises the visible transient-error recovery. These requests use the companion API; all interaction with the target still happens through its browser UI.
+
+## Replay the packaged example
+
+The retained capability is replayable against the running target without a provider key or ignored runtime artifact. Run this command from the repository root; npm executes the script inside `companion/`, so the artifact path starts with `../`:
 
 ~~~bash
-npm run replay --prefix companion -- --artifact ./companion/runtime/live/artifacts/member.lookup-savings-balance.json --input member_id=12345 --target http://127.0.0.1:3001 --headless
+npm run replay --prefix companion -- --artifact ../evidence/capability.json --input member_id=12345 --target http://127.0.0.1:3001 --headless
 ~~~
 
-For an offline artifact, use:
-
-~~~bash
-npm run replay --prefix companion -- --artifact ./companion/runtime/offline/artifacts/member.lookup-savings-balance.json --input member_id=12345 --target http://127.0.0.1:3001 --headless
-~~~
-
-The CLI prints one JSON result and exits nonzero for an invalid artifact, browser failure, policy failure, or other hard replay failure. Date and loan inputs use the same typed input contract as the workflow detail form.
+The command prints one JSON result and exits nonzero for invalid artifacts, browser failures, policy failures, or other hard replay errors. The detail page's free-text run box uses the same selected workflow context while collecting fresh values for each run. The API-level typed route remains available for direct integrations.
 
 ## Internal companion API
 
-The browser workspace uses these local routes:
+The local workspace routes are:
 
-- POST /api/tasks with { "goal": "..." }, optionally { "conversationId": "..." } for a clarification answer and { "context": { "workflowId": "..." } } for a selected saved workflow;
-- GET /api/workflows to list durable library metadata;
-- GET /api/workflows/:id to read one workflow, its validated artifact, and recent runs;
-- PATCH /api/workflows/:id with title, description, and/or archived metadata;
-- POST /api/workflows/:id/runs with { "inputs": { ... } } for API-level typed deterministic replay;
-- GET /api/runs and GET /api/runs/:runId for searchable/inspectable redacted history;
-- GET /api/runs/:runId/events for structured activity;
-- intervention routes for screenshot, claim, resume, abort, and human-action evidence.
+- `POST /api/tasks` with `{ "goal": "..." }`; clarification answers add `conversationId`, and a selected saved workflow adds `context: { "source": "saved_automation", "workflowId": "..." }`.
+- `GET /api/workflows` and `GET /api/workflows/:id` for the durable library and validated artifact.
+- `PATCH /api/workflows/:id` for title, description, and archive state.
+- `POST /api/workflows/:id/runs` with `{ "inputs": { ... } }` for typed deterministic replay.
+- `GET /api/runs`, `GET /api/runs/:runId`, and `/api/runs/:runId/events` for searchable redacted history.
+- Intervention routes for screenshot, claim, resume, abort, and human-action evidence.
 
-These are local internal endpoints for the companion UI and workflow library. The target integration remains browser-only and uses no target API.
+These are companion workspace routes. The target remains browser-only.
 
 ## Verify
-
-Run checks appropriate to the current checkout:
 
 ~~~bash
 npm test
 npm run typecheck
 npm run build
-npm run test --prefix companion -- test/playwright-workflows.test.ts
 ~~~
 
-The repository preserves sanitized historical live evidence under [evidence/](evidence/). That package records a provider-backed discovery and zero-LLM replay, but the commands above are the authority for current code after the expanded workflow and library changes.
-
-The separate [savings runtime verification](evidence/savings-runtime-verification.json) records five direct replay/handoff scenarios plus one restart persistence check with zero model decision calls. Fresh [Nex live-learning evidence](evidence/live-learning/show-service-requests-for-member-12345.json) records service-request discovery for member 12345, and [the changed-input replay](evidence/live-learning/show-service-requests-for-member-77777.json) records the bounded 77777 outcome. [Branch discovery](evidence/live-learning/find-branches-matching-northside.json) and [changed-input branch replay](evidence/live-learning/find-branches-matching-lakeside.json) also succeeded. Transaction and loan flows remain covered by scripted browser tests; their current provider evaluation is not claimed.
-
-The local review workspace contains the previously learned savings workflow. A fresh checkout starts with an empty library until discovery or artifact loading. The library and internal API support multiple compatible workflow records, and that behavior is covered by the local test suite; the README does not present target destinations as pre-seeded saved records.
+The last code validation passed 24/24 legacy target tests, 103/103 companion tests (including three browser workflow tests), root typecheck, and build. This submission cleanup changes documentation and packaged evidence only. The evidence files contain synthetic target data; screenshots show those synthetic records. Intermediate screenshot references were pruned and retained references are relative to `evidence/`, as recorded in each log's packaging note.
